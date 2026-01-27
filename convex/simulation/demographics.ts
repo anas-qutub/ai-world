@@ -1,10 +1,13 @@
 import { Doc, Id } from "../_generated/dataModel";
 import { MutationCtx } from "../_generated/server";
 
-// Clamp helper
-function clamp(value: number, min: number, max: number): number {
-  return Math.max(min, Math.min(max, value));
+// Natural minimum - resources can't go below 0
+function naturalMin(value: number, min: number = 0): number {
+  return Math.max(min, value);
 }
+
+// Food requirement per person per tick (baseline)
+const FOOD_REQUIREMENT_PER_PERSON = 0.5;
 
 // Age distribution ratios
 const NATURAL_AGE_DISTRIBUTION = {
@@ -51,27 +54,94 @@ export async function processDemographics(
     demo = await initializeDemographics(ctx, territoryId, territory.population, tick);
   }
 
-  // Calculate modified birth rate based on conditions
+  // Calculate carrying capacity based on resources
+  // Uses continuous formula rather than discrete thresholds
+  const baseCapacity = 30; // Base population a territory can support
+  const foodCapacityBonus = territory.food * 0.8; // More food = more capacity
+  const techCapacityBonus = territory.technology * 0.5; // Tech improves efficiency
+  const wealthCapacityBonus = territory.wealth * 0.3; // Wealth allows trade for food
+  const carryingCapacity = Math.floor(baseCapacity + foodCapacityBonus + techCapacityBonus + wealthCapacityBonus);
+
+  // Calculate population pressure (how much over/under capacity)
+  const populationPressure = territory.population / Math.max(1, carryingCapacity);
+
+  // Calculate food per capita - key metric for survival
+  const foodPerCapita = territory.food / Math.max(1, territory.population);
+
+  // Calculate modified birth rate based on conditions using SMOOTH CURVES
   let effectiveBirthRate = demo.birthRate;
   let effectiveDeathRate = demo.deathRate;
 
-  // Food affects birth/death rates
-  if (territory.food < 20) {
-    effectiveBirthRate *= 0.3; // Severe food shortage
-    effectiveDeathRate *= 2.5; // Starvation
-    events.push({ type: "famine", description: "Famine conditions reducing births and increasing deaths" });
-  } else if (territory.food < 40) {
-    effectiveBirthRate *= 0.7;
-    effectiveDeathRate *= 1.3;
-  } else if (territory.food > 70) {
-    effectiveBirthRate *= 1.3; // Prosperity increases births
+  // =============================================
+  // SMOOTH BIRTH RATE CURVE
+  // Uses exponential decay based on population pressure
+  // =============================================
+
+  // Birth rate smoothly decreases as population pressure increases
+  // At pressure = 1.0 (at capacity), factor = 0.61
+  // At pressure = 1.5 (over capacity), factor = 0.22
+  // At pressure = 2.0 (severe), factor = 0.08
+  const pressureFactor = Math.exp(-populationPressure * 0.5);
+  effectiveBirthRate *= pressureFactor;
+
+  // Food scarcity smoothly reduces birth rate
+  // foodFactor = 1 when food per capita >= 1, smoothly drops to ~0.05 when food = 0
+  const foodBirthFactor = 1 - Math.exp(-foodPerCapita * 2);
+  effectiveBirthRate *= Math.max(0.05, foodBirthFactor);
+
+  // Happiness smoothly modulates birth rate (0.6x to 1.3x)
+  const happinessFactor = 0.6 + (territory.happiness / 100) * 0.7;
+  effectiveBirthRate *= happinessFactor;
+
+  // =============================================
+  // SMOOTH DEATH RATE CURVE
+  // =============================================
+
+  // Death rate increases when population exceeds capacity
+  // No effect below capacity, gradual increase above
+  const excessPressure = Math.max(0, populationPressure - 1);
+  const pressureDeathFactor = 1 + excessPressure * excessPressure * 2; // Quadratic increase
+  effectiveDeathRate *= pressureDeathFactor;
+
+  // Starvation deaths - smooth curve based on food per capita
+  // deathIncrease = 0 when foodPerCapita >= 1
+  // Exponentially increases as food drops
+  const starvationFactor = 1 + Math.max(0, 3 * Math.exp(-foodPerCapita * 2));
+  effectiveDeathRate *= starvationFactor;
+
+  // =============================================
+  // GENERATE EVENTS FOR SIGNIFICANT CONDITIONS
+  // =============================================
+
+  // Crisis event when pressure is extreme (> 1.5)
+  if (populationPressure > 1.5) {
+    events.push({ type: "overpopulation_crisis", description: "Severe overpopulation straining all resources" });
+
+    // Food depletes proportionally to excess population
+    const foodDepletion = Math.floor(excessPressure * territory.population * 0.05);
+    await ctx.db.patch(territoryId, {
+      food: Math.max(0, territory.food - foodDepletion),
+    });
+  } else if (populationPressure > 1.2) {
+    events.push({ type: "resource_strain", description: "Population straining available resources" });
+
+    const foodDepletion = Math.floor(excessPressure * territory.population * 0.02);
+    await ctx.db.patch(territoryId, {
+      food: Math.max(0, territory.food - foodDepletion),
+    });
   }
 
-  // Happiness affects birth rate
-  if (territory.happiness > 60) {
-    effectiveBirthRate *= 1.2;
-  } else if (territory.happiness < 30) {
-    effectiveBirthRate *= 0.6;
+  // Famine event when food per capita is critically low
+  if (foodPerCapita < FOOD_REQUIREMENT_PER_PERSON * 0.3) {
+    events.push({ type: "famine", description: "Severe famine - starvation is widespread" });
+  } else if (foodPerCapita < FOOD_REQUIREMENT_PER_PERSON * 0.6) {
+    events.push({ type: "food_shortage", description: "Food shortage affecting the population" });
+  }
+
+  // Prosperity event when conditions are excellent
+  if (foodPerCapita > 2 && populationPressure < 0.8 && territory.happiness > 70) {
+    effectiveBirthRate *= 1.2; // Bonus for prosperity
+    events.push({ type: "prosperity", description: "Prosperity fuels population growth" });
   }
 
   // Calculate births (only from adults)
@@ -158,8 +228,8 @@ export async function promoteBirths(
     return { success: false };
   }
 
-  // Increase birth rate by 20%
-  const newBirthRate = Math.min(50, demo.birthRate * 1.2);
+  // Increase birth rate by 20% - no artificial cap
+  const newBirthRate = demo.birthRate * 1.2;
 
   await ctx.db.patch(demo._id, {
     birthRate: newBirthRate,

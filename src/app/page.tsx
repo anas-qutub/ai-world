@@ -3,7 +3,7 @@
 import { useState, lazy, Suspense } from "react";
 import { useQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";
-import { WorldMap } from "@/components/simulation/WorldMap";
+import { GlobeMap } from "@/components/simulation/GlobeMap";
 import { TerritoryPanel } from "@/components/simulation/TerritoryPanel";
 import { SpeedControl } from "@/components/controls/SpeedControl";
 import { TimeDisplay } from "@/components/controls/TimeDisplay";
@@ -73,20 +73,38 @@ export default function Home() {
       {/* Main Content */}
       <main className="flex-1 flex overflow-hidden relative z-10">
         {/* Map Area */}
-        <div className="flex-1 relative">
+        <div className="flex-1 relative overflow-hidden">
           {/* Corner decorations */}
           <div className="absolute top-4 left-4 w-8 h-8 border-l-2 border-t-2 border-[var(--cyber-cyan)] opacity-40 z-20" />
           <div className="absolute top-4 right-4 w-8 h-8 border-r-2 border-t-2 border-[var(--cyber-cyan)] opacity-40 z-20" />
           <div className="absolute bottom-4 left-4 w-8 h-8 border-l-2 border-b-2 border-[var(--cyber-cyan)] opacity-40 z-20" />
           <div className="absolute bottom-4 right-4 w-8 h-8 border-r-2 border-b-2 border-[var(--cyber-cyan)] opacity-40 z-20" />
 
-          <WorldMap
-            selectedTerritoryId={selectedTerritoryId}
-            onSelectTerritory={(id) => {
-              setSelectedTerritoryId(id);
-              setShow3DModal(true); // Go directly to 3D view
-            }}
-          />
+          {/* Globe or 3D View */}
+          {show3DModal && selectedTerritoryId && selectedTerritoryData ? (
+            <Suspense fallback={
+              <div className="absolute inset-0 z-40 bg-[var(--void)] flex items-center justify-center">
+                <div className="text-[var(--cyber-cyan)] font-display text-sm tracking-wider animate-pulse">
+                  LOADING 3D VIEW...
+                </div>
+              </div>
+            }>
+              <CivilizationModal
+                territoryId={selectedTerritoryId}
+                territoryName={selectedTerritoryData.territory.name}
+                territoryColor={selectedTerritoryData.territory.color}
+                onClose={() => setShow3DModal(false)}
+              />
+            </Suspense>
+          ) : (
+            <GlobeMap
+              selectedTerritoryId={selectedTerritoryId}
+              onSelectTerritory={(id) => {
+                setSelectedTerritoryId(id);
+                setShow3DModal(true); // Go directly to 3D view
+              }}
+            />
+          )}
         </div>
 
         {/* Right Sidebar - Control Panel */}
@@ -151,23 +169,6 @@ export default function Home() {
         </div>
       </footer>
 
-      {/* 3D Civilization Modal */}
-      {show3DModal && selectedTerritoryId && selectedTerritoryData && (
-        <Suspense fallback={
-          <div className="fixed inset-0 z-50 bg-[var(--void)] flex items-center justify-center">
-            <div className="text-[var(--cyber-cyan)] font-display text-sm tracking-wider animate-pulse">
-              LOADING 3D VIEW...
-            </div>
-          </div>
-        }>
-          <CivilizationModal
-            territoryId={selectedTerritoryId}
-            territoryName={selectedTerritoryData.territory.name}
-            territoryColor={selectedTerritoryData.territory.color}
-            onClose={() => setShow3DModal(false)}
-          />
-        </Suspense>
-      )}
     </div>
   );
 }

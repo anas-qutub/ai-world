@@ -1,5 +1,6 @@
 import { mutation } from "./_generated/server";
 import { TECH_TREE, getStartingTechnologies } from "./data/techTree";
+import { createCharacterInternal } from "./simulation/characters";
 
 export const initializeWorld = mutation({
   args: {},
@@ -27,7 +28,7 @@ export const initializeWorld = mutation({
         color: "#ef4444", // Red
         population: 25,
         wealth: 5,
-        food: 10,
+        food: 50, // Sufficient for sustainable population (2x per capita)
         technology: 1,
         military: 0,
         happiness: 50,
@@ -59,7 +60,7 @@ export const initializeWorld = mutation({
         color: "#14b8a6", // Teal
         population: 28,
         wealth: 5,
-        food: 10,
+        food: 56, // Sufficient for sustainable population (2x per capita)
         technology: 1,
         military: 0,
         happiness: 50,
@@ -92,7 +93,7 @@ export const initializeWorld = mutation({
         color: "#3b82f6", // Blue
         population: 22,
         wealth: 5,
-        food: 10,
+        food: 44, // Sufficient for sustainable population (2x per capita)
         technology: 1,
         military: 0,
         happiness: 50,
@@ -125,7 +126,7 @@ export const initializeWorld = mutation({
         color: "#f59e0b", // Amber
         population: 30,
         wealth: 5,
-        food: 12,
+        food: 60, // Sufficient for sustainable population (2x per capita)
         technology: 1,
         military: 0,
         happiness: 50,
@@ -159,7 +160,7 @@ export const initializeWorld = mutation({
         color: "#10b981", // Emerald
         population: 20,
         wealth: 5,
-        food: 14,
+        food: 45, // Sufficient for sustainable population (>2x per capita)
         technology: 1,
         military: 0,
         happiness: 55,
@@ -193,7 +194,7 @@ export const initializeWorld = mutation({
         color: "#8b5cf6", // Purple
         population: 18,
         wealth: 4,
-        food: 8,
+        food: 40, // Sufficient for sustainable population (>2x per capita)
         technology: 1,
         military: 0,
         happiness: 52,
@@ -599,6 +600,67 @@ Remember: You're not playing a generic strategy game. You're creating a living c
           researchProgress: Math.floor(Math.random() * 20), // 0-20% starting progress
         });
       }
+
+      // =============================================
+      // INITIALIZE STARTING CHARACTERS
+      // =============================================
+
+      // Create a ruler for each territory
+      await createCharacterInternal(
+        ctx as any,
+        territoryId,
+        "ruler",
+        0,
+        undefined,
+        `First Dynasty of ${territory.name}`,
+        1
+      );
+
+      // Create an heir
+      await createCharacterInternal(
+        ctx as any,
+        territoryId,
+        "heir",
+        0
+      );
+
+      // Create a general
+      await createCharacterInternal(
+        ctx as any,
+        territoryId,
+        "general",
+        0
+      );
+
+      // Create an advisor
+      await createCharacterInternal(
+        ctx as any,
+        territoryId,
+        "advisor",
+        0
+      );
+
+      // Initialize prosperity tier at 0 (Struggling)
+      await ctx.db.insert("prosperityTiers", {
+        territoryId,
+        currentTier: 0,
+        tierName: "Struggling",
+        progressToNextTier: 0,
+        ticksAtCurrentTier: 0,
+        tierHistory: [{
+          tier: 0,
+          tierName: "Struggling",
+          enteredTick: 0,
+        }],
+        complacencyLevel: 0,
+        decadenceLevel: 0,
+        stabilityFactors: {
+          economicStability: 50,
+          socialHarmony: 50,
+          militaryReadiness: 50,
+          politicalUnity: 50,
+        },
+      });
     }
 
     // Create initial system event
@@ -626,6 +688,70 @@ export const resetWorld = mutation({
   args: {},
   handler: async (ctx) => {
     // Delete all data in reverse dependency order
+
+    // =============================================
+    // ENGAGEMENT SYSTEM TABLES
+    // =============================================
+
+    // Delete chronicles
+    const chronicles = await ctx.db.query("chronicles").collect();
+    for (const chronicle of chronicles) {
+      await ctx.db.delete(chronicle._id);
+    }
+
+    // Delete tension indicators
+    const tensionIndicators = await ctx.db.query("tensionIndicators").collect();
+    for (const indicator of tensionIndicators) {
+      await ctx.db.delete(indicator._id);
+    }
+
+    // Delete rivalries
+    const rivalries = await ctx.db.query("rivalries").collect();
+    for (const rivalry of rivalries) {
+      await ctx.db.delete(rivalry._id);
+    }
+
+    // Delete records
+    const records = await ctx.db.query("records").collect();
+    for (const record of records) {
+      await ctx.db.delete(record._id);
+    }
+
+    // Delete streaks
+    const streaks = await ctx.db.query("streaks").collect();
+    for (const streak of streaks) {
+      await ctx.db.delete(streak._id);
+    }
+
+    // Delete leaderboard snapshots
+    const leaderboardSnapshots = await ctx.db.query("leaderboardSnapshots").collect();
+    for (const snapshot of leaderboardSnapshots) {
+      await ctx.db.delete(snapshot._id);
+    }
+
+    // Delete wars
+    const wars = await ctx.db.query("wars").collect();
+    for (const war of wars) {
+      await ctx.db.delete(war._id);
+    }
+
+    // Delete succession events
+    const successionEvents = await ctx.db.query("successionEvents").collect();
+    for (const event of successionEvents) {
+      await ctx.db.delete(event._id);
+    }
+
+    // Delete prosperity tiers
+    const prosperityTiers = await ctx.db.query("prosperityTiers").collect();
+    for (const tier of prosperityTiers) {
+      await ctx.db.delete(tier._id);
+    }
+
+    // Delete characters
+    const characters = await ctx.db.query("characters").collect();
+    for (const character of characters) {
+      await ctx.db.delete(character._id);
+    }
 
     // Deep simulation tables (Phase 5: Technology)
     const techTree = await ctx.db.query("techTree").collect();

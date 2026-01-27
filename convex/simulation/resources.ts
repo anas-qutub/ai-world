@@ -1,52 +1,110 @@
 import { Doc } from "../_generated/dataModel";
 
-// Clamp a value between min and max
+// Natural minimum - resources can't go below 0
+function naturalMin(value: number, min: number = 0): number {
+  return Math.max(min, value);
+}
+
+// Legacy clamp - kept for backwards compatibility during transition
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
 }
 
+// Diminishing returns for very high resources
+// Returns a penalty factor (0-1) that increases problems at extreme values
+export function calculateExcessPenalty(value: number, threshold: number = 80): number {
+  if (value <= threshold) return 0;
+  // Exponential penalty above threshold
+  const excess = value - threshold;
+  return 1 - Math.exp(-excess / 50);
+}
+
+// Calculate natural resource decay based on excess (attracts raiders, corruption, etc.)
+export function calculateExcessDecay(value: number, threshold: number = 80): number {
+  if (value <= threshold) return 0;
+  // Resources above threshold decay faster - attracts problems
+  const excess = value - threshold;
+  return excess * 0.05; // 5% of excess decays per tick
+}
+
 // Calculate passive resource changes for a territory each tick
-// Designed for small populations (20-100 people)
+// Resources can grow beyond 100 but face natural consequences at high levels
 export function calculateResourceChanges(
   territory: Doc<"territories">
 ): Partial<Doc<"territories">> {
   const changes: Partial<Doc<"territories">> = {};
 
-  // Food consumption - each person needs food
-  // Small populations consume less
+  // Food consumption - scales with population
+  // Each person needs roughly 0.3 food units per tick
   const foodConsumption = territory.population * 0.3;
-  changes.food = clamp(territory.food - foodConsumption, 0, 100);
+
+  // Baseline food production from foraging/hunting/gathering
+  // Even without farms, a small population can sustain itself through gathering
+  // Production scales with population (more gatherers) but with diminishing returns
+  // and is limited by carrying capacity of the land
+  const baselineGatheringCapacity = 40; // Land can support ~40 food from natural gathering
+  const gatheringEfficiency = Math.exp(-territory.population / 50); // Diminishing returns
+  const baselineFoodProduction = Math.min(
+    baselineGatheringCapacity * 0.5, // Max gathering is 20 food/tick
+    territory.population * 0.2 * gatheringEfficiency // Each person gathers ~0.2 food with efficiency
+  );
+
+  let newFood = territory.food - foodConsumption + baselineFoodProduction;
+
+  // High food stores attract pests, spoilage, raiders
+  newFood -= calculateExcessDecay(territory.food, 80);
+  changes.food = naturalMin(newFood, 0);
 
   // Population changes based on food and happiness
-  // People may be born or die
-  if (territory.food > 50 && territory.happiness > 40) {
+  // Handled primarily by demographics.ts for deep simulation
+  // This is a fallback for simple mode
+  const foodPerCapita = territory.food / Math.max(1, territory.population);
+  if (foodPerCapita > 2 && territory.happiness > 40) {
     // Good conditions - slow growth
     if (Math.random() < 0.1) {
       changes.population = territory.population + 1;
     }
-  } else if (territory.food < 10) {
-    // Starvation - people die
-    if (Math.random() < 0.3) {
+  } else if (foodPerCapita < 0.5) {
+    // Starvation - people die (probability scales with severity)
+    const starvationChance = Math.min(0.5, 0.5 - foodPerCapita);
+    if (Math.random() < starvationChance) {
       changes.population = Math.max(1, territory.population - 1);
     }
   }
 
-  // Happiness slowly trends toward baseline based on conditions
+  // Happiness responds to conditions naturally
   let happinessChange = 0;
-  if (territory.food > 50) happinessChange += 1;
-  if (territory.food < 20) happinessChange -= 3;
+  if (foodPerCapita > 1.5) happinessChange += 1;
+  else if (foodPerCapita < 0.7) happinessChange -= 3 * (0.7 - foodPerCapita);
   if (territory.wealth > 30) happinessChange += 0.5;
-  changes.happiness = clamp(territory.happiness + happinessChange, 0, 100);
+
+  // High wealth attracts envy, corruption - slight happiness drain
+  if (territory.wealth > 80) {
+    happinessChange -= calculateExcessPenalty(territory.wealth, 80) * 2;
+  }
+  changes.happiness = naturalMin(territory.happiness + happinessChange, 0);
 
   // Technology and knowledge slowly decay without maintenance
-  changes.technology = clamp(territory.technology - 0.2, 0, 100);
-  changes.knowledge = clamp(territory.knowledge - 0.1, 0, 100);
+  // But very high tech/knowledge decays faster (harder to maintain cutting edge)
+  const techDecay = 0.2 + calculateExcessDecay(territory.technology, 80) * 0.5;
+  const knowledgeDecay = 0.1 + calculateExcessDecay(territory.knowledge, 80) * 0.3;
+  changes.technology = naturalMin(territory.technology - techDecay, 0);
+  changes.knowledge = naturalMin(territory.knowledge - knowledgeDecay, 0);
 
-  // Military readiness decays
-  changes.military = clamp(territory.military - 0.3, 0, 100);
+  // Military readiness decays (soldiers need constant training)
+  // Large militaries are harder to maintain
+  const militaryDecay = 0.3 + calculateExcessDecay(territory.military, 80) * 0.5;
+  changes.military = naturalMin(territory.military - militaryDecay, 0);
 
   // Influence slowly fades without cultural activity
-  changes.influence = clamp(territory.influence - 0.2, 0, 100);
+  const influenceDecay = 0.2 + calculateExcessDecay(territory.influence, 80) * 0.3;
+  changes.influence = naturalMin(territory.influence - influenceDecay, 0);
+
+  // High wealth decays due to corruption, spending, etc.
+  const wealthDecay = calculateExcessDecay(territory.wealth, 80);
+  if (wealthDecay > 0) {
+    changes.wealth = naturalMin(territory.wealth - wealthDecay, 0);
+  }
 
   return changes;
 }
@@ -81,10 +139,11 @@ export function applyAllianceBenefits(
   // - Small military boost (shared defense knowledge)
   // - Small happiness boost (feeling of security)
   // - Small trade boost (economic cooperation)
+  // No caps - resources can grow naturally
   return {
-    military: clamp(territory.military + 0.5, 0, 100),
-    happiness: clamp(territory.happiness + 0.3, 0, 100),
-    wealth: clamp(territory.wealth + 0.2, 0, 100),
+    military: naturalMin(territory.military + 0.5, 0),
+    happiness: naturalMin(territory.happiness + 0.3, 0),
+    wealth: naturalMin(territory.wealth + 0.2, 0),
   };
 }
 
@@ -182,8 +241,8 @@ export function generateRandomEvent(territory: Doc<"territories">): {
     return {
       type: "disaster",
       effects: {
-        food: clamp(territory.food - foodLoss, 0, 100),
-        happiness: clamp(territory.happiness - 5, 0, 100),
+        food: naturalMin(territory.food - foodLoss, 0),
+        happiness: naturalMin(territory.happiness - 5, 0),
       },
       title: "Hard Times",
       description: hardshipTypes[Math.floor(Math.random() * hardshipTypes.length)] + ` The people of ${tribeName} must endure.`,
@@ -202,9 +261,9 @@ export function generateRandomEvent(territory: Doc<"territories">): {
     return {
       type: "breakthrough",
       effects: {
-        knowledge: clamp(territory.knowledge + knowledgeGain, 0, 100),
-        technology: clamp(territory.technology + 2, 0, 100),
-        happiness: clamp(territory.happiness + 3, 0, 100),
+        knowledge: naturalMin(territory.knowledge + knowledgeGain, 0),
+        technology: naturalMin(territory.technology + 2, 0),
+        happiness: naturalMin(territory.happiness + 3, 0),
       },
       title: `${discovererName}'s Discovery`,
       description: discoveries[Math.floor(Math.random() * discoveries.length)] + ` Knowledge spreads through ${tribeName}.`,
@@ -223,7 +282,7 @@ export function generateRandomEvent(territory: Doc<"territories">): {
       type: "population_boom",
       effects: {
         population: territory.population + 1,
-        happiness: clamp(territory.happiness + 5, 0, 100),
+        happiness: naturalMin(territory.happiness + 5, 0),
       },
       title: `Birth of ${babyName}`,
       description: birthStories[Math.floor(Math.random() * birthStories.length)] + ` The tribe celebrates!`,
@@ -244,7 +303,7 @@ export function generateRandomEvent(territory: Doc<"territories">): {
       return {
         type: "crisis",
         effects: {
-          happiness: clamp(territory.happiness - 8, 0, 100),
+          happiness: naturalMin(territory.happiness - 8, 0),
           population: Math.max(1, territory.population - 1),
         },
         title: `Death of ${affectedName}`,
@@ -259,7 +318,7 @@ export function generateRandomEvent(territory: Doc<"territories">): {
       return {
         type: "crisis",
         effects: {
-          happiness: clamp(territory.happiness - 5, 0, 100),
+          happiness: naturalMin(territory.happiness - 5, 0),
         },
         title: `${affectedName} Falls Ill`,
         description: sicknessStories[Math.floor(Math.random() * sicknessStories.length)],
@@ -269,6 +328,7 @@ export function generateRandomEvent(territory: Doc<"territories">): {
 }
 
 // Calculate effects of actions (updated for civilization-building)
+// Resources can grow naturally without caps
 export function calculateActionEffects(
   action: string,
   territory: Doc<"territories">,
@@ -277,26 +337,26 @@ export function calculateActionEffects(
   switch (action) {
     case "gather_food":
       return {
-        food: clamp(territory.food + 8, 0, 100),
-        knowledge: clamp(territory.knowledge + 1, 0, 100),
+        food: naturalMin(territory.food + 8, 0),
+        knowledge: naturalMin(territory.knowledge + 1, 0),
       };
 
     case "build_shelter":
       return {
-        happiness: clamp(territory.happiness + 5, 0, 100),
-        wealth: clamp(territory.wealth + 2, 0, 100),
+        happiness: naturalMin(territory.happiness + 5, 0),
+        wealth: naturalMin(territory.wealth + 2, 0),
       };
 
     case "explore_land":
       return {
-        knowledge: clamp(territory.knowledge + 4, 0, 100),
-        influence: clamp(territory.influence + 2, 0, 100),
+        knowledge: naturalMin(territory.knowledge + 4, 0),
+        influence: naturalMin(territory.influence + 2, 0),
       };
 
     case "develop_tools":
       return {
-        technology: clamp(territory.technology + 5, 0, 100),
-        knowledge: clamp(territory.knowledge + 2, 0, 100),
+        technology: naturalMin(territory.technology + 5, 0),
+        knowledge: naturalMin(territory.knowledge + 2, 0),
       };
 
     case "grow_community":
@@ -304,69 +364,69 @@ export function calculateActionEffects(
       const popGrowth = Math.random() < 0.3 ? 1 : 0;
       return {
         population: territory.population + popGrowth,
-        happiness: clamp(territory.happiness + 2, 0, 100),
+        happiness: naturalMin(territory.happiness + 2, 0),
       };
 
     case "create_culture":
       return {
-        influence: clamp(territory.influence + 6, 0, 100),
-        happiness: clamp(territory.happiness + 3, 0, 100),
-        knowledge: clamp(territory.knowledge + 2, 0, 100),
+        influence: naturalMin(territory.influence + 6, 0),
+        happiness: naturalMin(territory.happiness + 3, 0),
+        knowledge: naturalMin(territory.knowledge + 2, 0),
       };
 
     case "train_warriors":
       return {
-        military: clamp(territory.military + 4, 0, 100),
-        food: clamp(territory.food - 1, 0, 100),
+        military: naturalMin(territory.military + 4, 0),
+        food: naturalMin(territory.food - 1, 0),
       };
 
     case "rest":
       return {
-        happiness: clamp(territory.happiness + 3, 0, 100),
-        food: clamp(territory.food + 1, 0, 100), // Conservation
+        happiness: naturalMin(territory.happiness + 3, 0),
+        food: naturalMin(territory.food + 1, 0), // Conservation
       };
 
     // === CULTURAL IDENTITY ===
     case "name_tribe":
       return {
-        influence: clamp(territory.influence + 4, 0, 100),
-        happiness: clamp(territory.happiness + 3, 0, 100),
+        influence: naturalMin(territory.influence + 4, 0),
+        happiness: naturalMin(territory.happiness + 3, 0),
       };
 
     // === GOVERNANCE ACTIONS ===
     case "establish_council":
       return {
-        knowledge: clamp(territory.knowledge + 3, 0, 100),
-        happiness: clamp(territory.happiness + 2, 0, 100),
+        knowledge: naturalMin(territory.knowledge + 3, 0),
+        happiness: naturalMin(territory.happiness + 2, 0),
       };
 
     case "establish_chief":
       return {
-        military: clamp(territory.military + 3, 0, 100),
-        influence: clamp(territory.influence + 2, 0, 100),
+        military: naturalMin(territory.military + 3, 0),
+        influence: naturalMin(territory.influence + 2, 0),
       };
 
     case "establish_democracy":
       return {
-        happiness: clamp(territory.happiness + 5, 0, 100),
-        knowledge: clamp(territory.knowledge + 3, 0, 100),
+        happiness: naturalMin(territory.happiness + 5, 0),
+        knowledge: naturalMin(territory.knowledge + 3, 0),
       };
 
     case "establish_dictatorship":
       return {
-        military: clamp(territory.military + 5, 0, 100),
-        happiness: clamp(territory.happiness - 5, 0, 100),
+        military: naturalMin(territory.military + 5, 0),
+        happiness: naturalMin(territory.happiness - 5, 0),
       };
 
     case "establish_theocracy":
       return {
-        influence: clamp(territory.influence + 4, 0, 100),
-        happiness: clamp(territory.happiness + 3, 0, 100),
+        influence: naturalMin(territory.influence + 4, 0),
+        happiness: naturalMin(territory.happiness + 3, 0),
       };
 
     case "change_government":
       return {
-        happiness: clamp(territory.happiness - 2, 0, 100), // Transition unrest
+        happiness: naturalMin(territory.happiness - 2, 0), // Transition unrest
       };
 
     // Actions requiring targets are handled in helpers.ts

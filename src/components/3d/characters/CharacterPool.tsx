@@ -191,8 +191,8 @@ export function CharacterPool({
 
   // Calculate character distribution
   const distribution = useMemo(() => {
-    // Scale population logarithmically (min 15, max 60 visible characters)
-    const totalVisible = Math.min(60, Math.max(15, Math.ceil(Math.log10(Math.max(population, 10)) * 18)));
+    // Show actual population count (max 150 for performance)
+    const totalVisible = Math.min(150, Math.max(0, Math.round(population)));
 
     // Check for specific resource types
     const hasMinerals = naturalResources.some(r =>

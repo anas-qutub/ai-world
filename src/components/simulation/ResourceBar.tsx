@@ -9,6 +9,7 @@ interface ResourceBarProps {
   icon?: React.ReactNode;
   colorClass?: string;
   showValue?: boolean;
+  showBar?: boolean;
 }
 
 export function ResourceBar({
@@ -18,8 +19,9 @@ export function ResourceBar({
   icon,
   colorClass = "from-[var(--cyber-cyan)] to-[var(--holo-blue)]",
   showValue = true,
+  showBar = true,
 }: ResourceBarProps) {
-  const percentage = Math.min(100, Math.max(0, (value / maxValue) * 100));
+  const percentage = maxValue === Infinity ? 100 : Math.min(100, Math.max(0, (value / maxValue) * 100));
 
   // Dynamic color based on value
   const getGradient = () => {
@@ -39,8 +41,10 @@ export function ResourceBar({
         </div>
         {showValue && (
           <span className="font-data text-xs text-white tabular-nums">
-            {typeof value === "number" ? value.toFixed(0) : value}
-            <span className="text-[var(--text-muted)]">/{maxValue}</span>
+            {typeof value === "number" ? Math.round(value).toLocaleString() : value}
+            {maxValue !== undefined && maxValue !== Infinity && (
+              <span className="text-[var(--text-muted)]">/{maxValue}</span>
+            )}
           </span>
         )}
       </div>
@@ -90,7 +94,7 @@ export function ResourceGrid({ resources }: ResourceGridProps) {
       key: "population",
       label: "Population",
       icon: <Users className="w-3.5 h-3.5" />,
-      maxValue: 200,
+      maxValue: Infinity,
       colorClass: "from-[var(--holo-blue)] to-[var(--plasma-purple)]"
     },
     {

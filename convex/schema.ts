@@ -60,6 +60,8 @@ export default defineSchema({
     beliefs: v.optional(v.string()), // Their spiritual/philosophical beliefs
     // Natural resources unique to this territory
     naturalResources: v.optional(v.array(v.string())), // e.g., ["gold", "iron", "wheat"]
+    // Accumulated civil unrest (natural tension system)
+    unrest: v.optional(v.number()), // 0-∞, builds when happiness < expectations
   }).index("by_name", ["name"]),
 
   // AI agent configuration per territory
@@ -429,4 +431,391 @@ export default defineSchema({
   })
     .index("by_era", ["era"])
     .index("by_category", ["category"]),
+
+  // =============================================
+  // ENGAGEMENT SYSTEMS - PHASE 6
+  // =============================================
+
+  // Characters with deep psychology
+  characters: defineTable({
+    territoryId: v.id("territories"),
+
+    // Identity
+    name: v.string(),
+    title: v.string(), // "King", "General", "Advisor", "Heir", "Rival"
+    role: v.union(
+      v.literal("ruler"),
+      v.literal("heir"),
+      v.literal("general"),
+      v.literal("advisor"),
+      v.literal("rival"),
+      v.literal("rebel_leader")
+    ),
+
+    // Lifecycle
+    birthTick: v.number(),
+    deathTick: v.optional(v.number()),
+    deathCause: v.optional(v.string()),
+    isAlive: v.boolean(),
+    age: v.number(), // Current age in years
+
+    // PSYCHOLOGY - Core Traits (0-100)
+    traits: v.object({
+      // Power & Ambition
+      ambition: v.number(),     // Desire for power. High = plots for throne
+      greed: v.number(),        // Desire for wealth. High = embezzles, corrupt
+
+      // Moral Character
+      loyalty: v.number(),      // Faithfulness. Low = will betray
+      honor: v.number(),        // Sense of duty/integrity. High = keeps oaths
+      cruelty: v.number(),      // Ruthlessness. High = executes rivals
+      compassion: v.number(),   // Empathy. High = merciful decisions
+
+      // Mental Traits
+      cunning: v.number(),      // Scheming ability. High = plots succeed
+      wisdom: v.number(),       // Good judgment. High = better decisions
+      paranoia: v.number(),     // Suspicion. High = purges advisors
+
+      // Emotional Traits
+      courage: v.number(),      // Bravery. High = leads battles personally
+      pride: v.number(),        // Self-regard. High = won't back down, easily insulted
+      wrath: v.number(),        // Anger/vengefulness. High = holds grudges
+
+      // Social Traits
+      charisma: v.number(),     // Likability. High = inspires loyalty
+      diplomacy: v.number(),    // Negotiation skill. High = better deals
+    }),
+
+    // Current emotional state (temporary, changes based on events)
+    emotionalState: v.object({
+      hope: v.number(),         // 0-100, optimism about the future
+      fear: v.number(),         // 0-100, anxiety about threats
+      shame: v.number(),        // 0-100, guilt from failures/dishonor
+      despair: v.number(),      // 0-100, hopelessness
+      contentment: v.number(),  // 0-100, satisfaction with life
+      rage: v.number(),         // 0-100, active anger
+    }),
+
+    // Hidden Agenda (what they secretly want)
+    secretGoal: v.optional(v.union(
+      v.literal("seize_throne"),
+      v.literal("accumulate_wealth"),
+      v.literal("revenge"),
+      v.literal("protect_family"),
+      v.literal("foreign_allegiance"),
+      v.literal("religious_dominance"),
+      v.literal("independence"),
+      v.literal("glory"),
+      v.literal("none")
+    )),
+    secretGoalTarget: v.optional(v.string()),
+
+    // Relationships with other characters
+    relationships: v.array(v.object({
+      characterId: v.id("characters"),
+      type: v.union(
+        v.literal("ally"),
+        v.literal("enemy"),
+        v.literal("rival"),
+        v.literal("lover"),
+        v.literal("mentor"),
+        v.literal("puppet"),
+        v.literal("friend"),
+        v.literal("nemesis")
+      ),
+      strength: v.number(), // -100 to 100
+      isSecret: v.boolean(),
+    })),
+
+    // Active plots (secret schemes)
+    activePlots: v.array(v.object({
+      plotType: v.string(), // "coup", "assassination", "embezzlement", "sabotage", "defection"
+      targetId: v.optional(v.id("characters")),
+      startTick: v.number(),
+      progressPercent: v.number(), // 0-100, triggers when reaches 100
+      discovered: v.boolean(),
+      conspirators: v.array(v.id("characters")),
+    })),
+
+    // For rulers
+    coronationTick: v.optional(v.number()),
+    dynastyName: v.optional(v.string()),
+    dynastyGeneration: v.optional(v.number()),
+
+    // Reign stats (for rulers, calculated on death)
+    reignSummary: v.optional(v.object({
+      yearsReigned: v.number(),
+      warsStarted: v.number(),
+      warsWon: v.number(),
+      plotsSurvived: v.number(),
+      advisorsExecuted: v.number(),
+      obituary: v.string(),
+    })),
+
+    // Notable deeds that build reputation
+    deeds: v.array(v.object({
+      tick: v.number(),
+      description: v.string(),
+      type: v.string(), // "heroic", "villainous", "wise", "foolish", "merciful", "cruel"
+    })),
+  })
+    .index("by_territory", ["territoryId"])
+    .index("by_role", ["role"])
+    .index("by_alive", ["isAlive"]),
+
+  // Succession events for drama
+  successionEvents: defineTable({
+    territoryId: v.id("territories"),
+    tick: v.number(),
+
+    deceasedRulerId: v.id("characters"),
+    newRulerId: v.id("characters"),
+
+    successionType: v.union(
+      v.literal("peaceful"),
+      v.literal("coup"),
+      v.literal("civil_war"),
+      v.literal("assassination"),
+      v.literal("election"),
+      v.literal("conquest")
+    ),
+
+    // Drama details
+    plottersExecuted: v.number(),
+    civilWarCasualties: v.optional(v.number()),
+    narrative: v.string(),
+  })
+    .index("by_territory", ["territoryId"])
+    .index("by_tick", ["tick"]),
+
+  // Named wars with chronicles
+  wars: defineTable({
+    name: v.string(), // "The War of Iron Rivers"
+
+    // Participants
+    aggressorId: v.id("territories"),
+    defenderId: v.id("territories"),
+
+    // Leaders at war start (for narrative)
+    aggressorRulerId: v.optional(v.id("characters")),
+    defenderRulerId: v.optional(v.id("characters")),
+
+    // Timeline
+    startTick: v.number(),
+    endTick: v.optional(v.number()),
+
+    // Cause
+    causeType: v.string(), // "territorial", "revenge", "succession", "trade", "religion", "honor"
+    causeDescription: v.string(),
+
+    // Statistics
+    casualties: v.object({
+      aggressor: v.number(),
+      defender: v.number(),
+    }),
+
+    majorBattles: v.array(v.object({
+      name: v.string(),
+      tick: v.number(),
+      winner: v.string(),
+      casualties: v.number(),
+      description: v.optional(v.string()),
+    })),
+
+    // Outcome
+    outcome: v.optional(v.string()),
+    peaceTerms: v.optional(v.string()),
+    narrative: v.optional(v.string()),
+
+    status: v.union(v.literal("active"), v.literal("ended")),
+  })
+    .index("by_aggressor", ["aggressorId"])
+    .index("by_defender", ["defenderId"])
+    .index("by_status", ["status"]),
+
+  // Leaderboard snapshots
+  leaderboardSnapshots: defineTable({
+    tick: v.number(),
+    category: v.string(), // "population", "military", "wealth", "technology", "happiness", "influence", "knowledge"
+
+    rankings: v.array(v.object({
+      territoryId: v.id("territories"),
+      territoryName: v.string(),
+      value: v.number(),
+      rank: v.number(),
+      previousRank: v.optional(v.number()),
+      change: v.optional(v.number()), // Rank change (+1 = moved up, -1 = moved down)
+    })),
+  })
+    .index("by_tick", ["tick"])
+    .index("by_category", ["category"]),
+
+  // Streaks
+  streaks: defineTable({
+    territoryId: v.id("territories"),
+    streakType: v.string(), // "peace", "dynasty", "winning", "prosperity", "alliance", "expansion"
+    startTick: v.number(),
+    currentLength: v.number(), // In ticks (months)
+    isActive: v.boolean(),
+    endTick: v.optional(v.number()),
+    endReason: v.optional(v.string()),
+  })
+    .index("by_territory", ["territoryId"])
+    .index("by_type", ["streakType"])
+    .index("by_active", ["isActive"]),
+
+  // Records
+  records: defineTable({
+    recordType: v.string(), // "longest_peace", "bloodiest_war", "longest_dynasty", "highest_population", etc.
+    territoryId: v.id("territories"),
+    territoryName: v.string(),
+    value: v.number(),
+    setAtTick: v.number(),
+    rulerId: v.optional(v.id("characters")),
+    rulerName: v.optional(v.string()),
+    description: v.optional(v.string()),
+  })
+    .index("by_type", ["recordType"])
+    .index("by_territory", ["territoryId"]),
+
+  // Tension indicators
+  tensionIndicators: defineTable({
+    territoryId: v.id("territories"),
+    tick: v.number(),
+
+    // Probabilities (0-100)
+    warLikelihood: v.number(),
+    coupLikelihood: v.number(),
+    famineLikelihood: v.number(),
+    successionCrisisLikelihood: v.number(),
+    rebellionLikelihood: v.number(),
+
+    // Active countdowns
+    countdowns: v.array(v.object({
+      type: v.string(),
+      label: v.string(),
+      ticksRemaining: v.number(),
+    })),
+
+    // Brewing conflicts
+    brewingConflicts: v.array(v.object({
+      targetId: v.id("territories"),
+      likelihood: v.number(),
+      reason: v.string(),
+    })),
+  })
+    .index("by_territory", ["territoryId"])
+    .index("by_tick", ["tick"]),
+
+  // Rivalries between specific characters/territories
+  rivalries: defineTable({
+    // Between specific characters (not just territories)
+    character1Id: v.id("characters"),
+    character2Id: v.id("characters"),
+
+    territory1Id: v.id("territories"),
+    territory2Id: v.id("territories"),
+
+    // Grudge details
+    intensity: v.number(), // 0-100
+    rivalryType: v.string(), // "blood_feud", "territorial", "personal", "honor", "betrayal"
+
+    reasons: v.array(v.object({
+      reason: v.string(),
+      tick: v.number(),
+      description: v.string(),
+      intensityAdded: v.number(),
+    })),
+
+    // Can pass to successors
+    isHereditary: v.boolean(),
+
+    status: v.union(v.literal("active"), v.literal("resolved"), v.literal("dormant")),
+    startTick: v.number(),
+    endTick: v.optional(v.number()),
+  })
+    .index("by_territory1", ["territory1Id"])
+    .index("by_territory2", ["territory2Id"])
+    .index("by_status", ["status"]),
+
+  // Yearly chronicles (recaps)
+  chronicles: defineTable({
+    year: v.number(),
+
+    globalSummary: v.string(),
+
+    territoryHighlights: v.array(v.object({
+      territoryId: v.id("territories"),
+      territoryName: v.string(),
+      headline: v.string(),
+      events: v.array(v.string()),
+    })),
+
+    majorEvents: v.array(v.object({
+      title: v.string(),
+      description: v.string(),
+      impactScore: v.number(), // 1-10
+      tick: v.number(),
+    })),
+
+    rulerChanges: v.array(v.object({
+      territoryId: v.id("territories"),
+      territoryName: v.string(),
+      oldRuler: v.string(),
+      newRuler: v.string(),
+      cause: v.string(),
+    })),
+
+    warSummaries: v.array(v.object({
+      warName: v.string(),
+      status: v.string(), // "started", "ongoing", "ended"
+      description: v.string(),
+    })),
+
+    recordsBroken: v.array(v.object({
+      recordType: v.string(),
+      territoryName: v.string(),
+      oldValue: v.optional(v.number()),
+      newValue: v.number(),
+    })),
+  }).index("by_year", ["year"]),
+
+  // Prosperity tiers - progression toward golden age
+  prosperityTiers: defineTable({
+    territoryId: v.id("territories"),
+
+    // Current tier (0-5)
+    // 0: Struggling, 1: Stable, 2: Growing, 3: Flourishing, 4: Prosperous, 5: Golden Age
+    currentTier: v.number(),
+    tierName: v.string(),
+
+    // Progress toward next tier (0-100)
+    progressToNextTier: v.number(),
+
+    // How long at current tier (in ticks)
+    ticksAtCurrentTier: v.number(),
+
+    // Tier history
+    tierHistory: v.array(v.object({
+      tier: v.number(),
+      tierName: v.string(),
+      enteredTick: v.number(),
+      exitedTick: v.optional(v.number()),
+      exitReason: v.optional(v.string()),
+    })),
+
+    // Complacency (builds during prosperity, breeds problems)
+    complacencyLevel: v.number(), // 0-100, increases at higher tiers
+
+    // Decadence (corruption that builds during golden ages)
+    decadenceLevel: v.number(), // 0-100, triggers plots and rebellions
+
+    // Stability modifiers
+    stabilityFactors: v.object({
+      economicStability: v.number(), // 0-100
+      socialHarmony: v.number(),     // 0-100
+      militaryReadiness: v.number(), // 0-100
+      politicalUnity: v.number(),    // 0-100
+    }),
+  }).index("by_territory", ["territoryId"]),
 });

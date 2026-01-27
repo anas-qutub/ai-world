@@ -535,6 +535,18 @@ export const recordDecision = internalMutation({
       share_technology: "Shared Technology",
       steal_technology: "Attempted Espionage",
       establish_academy: "Established Academy",
+      // Engagement - Character & Intrigue
+      execute_character: "Executed Suspected Traitor",
+      investigate_plot: "Investigated Plot",
+      bribe_character: "Bribed Court Member",
+      arrange_marriage: "Arranged Political Marriage",
+      name_heir: "Named Official Heir",
+      found_dynasty: "Founded Dynasty",
+      purge_court: "Purged the Court",
+      hold_feast: "Held Grand Feast",
+      address_decadence: "Addressed Decadence",
+      declare_vendetta: "Declared Vendetta",
+      seek_reconciliation: "Sought Reconciliation",
     };
 
     const eventSeverity = getEventSeverity(args.action);
@@ -598,7 +610,7 @@ async function applyActionEffects(
     effects.buildingResult = result;
     if (result.success) {
       await ctx.db.patch(territory._id, {
-        food: Math.min(100, territory.food + 5), // Initial boost
+        food: territory.food + 5, // Initial boost - no cap
       });
     }
   }
@@ -618,7 +630,7 @@ async function applyActionEffects(
     effects.buildingResult = result;
     if (result.success) {
       await ctx.db.patch(territory._id, {
-        wealth: Math.min(100, territory.wealth + 3),
+        wealth: territory.wealth + 3, // No cap
       });
     }
   }
@@ -627,7 +639,7 @@ async function applyActionEffects(
     // For now, just provide economic effects
     // Can be expanded with actual tax rate tracking
     await ctx.db.patch(territory._id, {
-      wealth: Math.min(100, territory.wealth + 3),
+      wealth: territory.wealth + 3, // No cap
       happiness: Math.max(0, territory.happiness - 2),
     });
     effects.taxAdjusted = true;
@@ -638,7 +650,7 @@ async function applyActionEffects(
     effects.prospectResult = result;
     if (result.found) {
       await ctx.db.patch(territory._id, {
-        knowledge: Math.min(100, territory.knowledge + 3),
+        knowledge: territory.knowledge + 3, // No cap
       });
     }
   }
@@ -663,7 +675,7 @@ async function applyActionEffects(
     const result = await promoteBirths(ctx, territory._id, currentTick);
     effects.birthsPromoted = result;
     await ctx.db.patch(territory._id, {
-      happiness: Math.min(100, territory.happiness + 2),
+      happiness: territory.happiness + 2, // No cap
       food: Math.max(0, territory.food - 3), // Extra food for families
     });
   }
@@ -719,7 +731,7 @@ async function applyActionEffects(
     effects.militiaResult = result;
     if (result.success) {
       await ctx.db.patch(territory._id, {
-        military: Math.min(100, territory.military + result.actualCount),
+        military: territory.military + result.actualCount, // No cap
       });
     }
   }
@@ -744,7 +756,7 @@ async function applyActionEffects(
       effects.recruitResult = result;
       if (result.success) {
         await ctx.db.patch(territory._id, {
-          military: Math.min(100, territory.military + 5),
+          military: territory.military + 5, // No cap
         });
       }
     }
@@ -808,8 +820,8 @@ async function applyActionEffects(
       effects.researchResult = result;
       if (result.completed) {
         await ctx.db.patch(territory._id, {
-          technology: Math.min(100, territory.technology + 3),
-          knowledge: Math.min(100, territory.knowledge + 2),
+          technology: territory.technology + 3, // No cap
+          knowledge: territory.knowledge + 2, // No cap
         });
       }
     }
@@ -820,9 +832,259 @@ async function applyActionEffects(
     effects.academyResult = result;
     if (result.success) {
       await ctx.db.patch(territory._id, {
-        knowledge: Math.min(100, territory.knowledge + 5),
+        knowledge: territory.knowledge + 5, // No cap
       });
     }
+  }
+
+  // =============================================
+  // ENGAGEMENT SYSTEM - CHARACTER & INTRIGUE ACTIONS
+  // =============================================
+
+  if (action === "execute_character") {
+    // Find a suspicious character (low loyalty or high ambition)
+    const characters = await ctx.db
+      .query("characters")
+      .withIndex("by_territory", (q: any) => q.eq("territoryId", territory._id))
+      .filter((q: any) => q.and(
+        q.eq(q.field("isAlive"), true),
+        q.neq(q.field("role"), "ruler")
+      ))
+      .collect();
+
+    const suspicious = characters.filter((c: any) => c.traits.loyalty < 50 || c.traits.ambition > 60);
+    if (suspicious.length > 0) {
+      const target = suspicious[0];
+      const wasGuilty = target.activePlots.length > 0;
+
+      // Execute the character
+      await ctx.db.patch(target._id, {
+        isAlive: false,
+        deathTick: currentTick,
+        deathCause: "executed",
+      });
+
+      if (wasGuilty) {
+        effects.executionResult = { success: true, wasGuilty: true };
+        // Slight stability boost
+        await ctx.db.patch(territory._id, {
+          happiness: territory.happiness + 2, // No cap
+        });
+      } else {
+        effects.executionResult = { success: true, wasGuilty: false };
+        // Innocent execution damages happiness
+        await ctx.db.patch(territory._id, {
+          happiness: Math.max(0, territory.happiness - 10),
+        });
+      }
+    } else {
+      effects.executionResult = { success: false, error: "No suspicious characters to execute" };
+    }
+  }
+
+  if (action === "investigate_plot") {
+    // Look for active plots
+    const characters = await ctx.db
+      .query("characters")
+      .withIndex("by_territory", (q: any) => q.eq("territoryId", territory._id))
+      .filter((q: any) => q.eq(q.field("isAlive"), true))
+      .collect();
+
+    const plotters = characters.filter((c: any) =>
+      c.activePlots.some((p: any) => !p.discovered)
+    );
+
+    // Cost of investigation
+    await ctx.db.patch(territory._id, {
+      wealth: Math.max(0, territory.wealth - 5),
+    });
+
+    if (plotters.length > 0) {
+      // Chance to discover based on random factor
+      const discovered = Math.random() < 0.6;
+      if (discovered) {
+        const plotter = plotters[0];
+        const plots = plotter.activePlots.map((p: any) => ({ ...p, discovered: true }));
+        await ctx.db.patch(plotter._id, { activePlots: plots });
+        effects.investigationResult = { success: true, discovered: plotter.name, plotType: plots[0]?.plotType };
+      } else {
+        effects.investigationResult = { success: true, discovered: null };
+      }
+    } else {
+      effects.investigationResult = { success: true, message: "No plots found" };
+    }
+  }
+
+  if (action === "bribe_character") {
+    const characters = await ctx.db
+      .query("characters")
+      .withIndex("by_territory", (q: any) => q.eq("territoryId", territory._id))
+      .filter((q: any) => q.and(
+        q.eq(q.field("isAlive"), true),
+        q.neq(q.field("role"), "ruler")
+      ))
+      .collect();
+
+    // Find someone with low loyalty to bribe
+    const toBribe = characters.find((c: any) => c.traits.loyalty < 60);
+    if (toBribe) {
+      await ctx.db.patch(toBribe._id, {
+        traits: {
+          ...toBribe.traits,
+          loyalty: Math.min(100, toBribe.traits.loyalty + 20),
+          greed: Math.min(100, toBribe.traits.greed + 10),
+        },
+      });
+      await ctx.db.patch(territory._id, {
+        wealth: Math.max(0, territory.wealth - 10),
+      });
+      effects.bribeResult = { success: true, target: toBribe.name };
+    } else {
+      effects.bribeResult = { success: false, error: "No one needs bribing" };
+    }
+  }
+
+  if (action === "name_heir") {
+    // Find or create an heir
+    const characters = await ctx.db
+      .query("characters")
+      .withIndex("by_territory", (q: any) => q.eq("territoryId", territory._id))
+      .filter((q: any) => q.eq(q.field("isAlive"), true))
+      .collect();
+
+    const existingHeir = characters.find((c: any) => c.role === "heir");
+    if (existingHeir) {
+      effects.heirResult = { success: true, heir: existingHeir.name, alreadyExists: true };
+    } else {
+      // Promote someone to heir
+      const candidate = characters.find((c: any) => c.role === "general" || c.role === "advisor");
+      if (candidate) {
+        await ctx.db.patch(candidate._id, { role: "heir", title: "Heir" });
+        effects.heirResult = { success: true, heir: candidate.name, promoted: true };
+      } else {
+        effects.heirResult = { success: false, error: "No suitable heir candidate" };
+      }
+    }
+  }
+
+  if (action === "found_dynasty") {
+    // Update ruler with dynasty info
+    const ruler = await ctx.db
+      .query("characters")
+      .withIndex("by_territory", (q: any) => q.eq("territoryId", territory._id))
+      .filter((q: any) => q.and(q.eq(q.field("role"), "ruler"), q.eq(q.field("isAlive"), true)))
+      .first();
+
+    if (ruler && !ruler.dynastyName) {
+      const dynastyName = `${ruler.name}'s Dynasty`;
+      await ctx.db.patch(ruler._id, {
+        dynastyName,
+        dynastyGeneration: 1,
+      });
+      await ctx.db.patch(territory._id, {
+        influence: territory.influence + 10, // No cap
+      });
+      effects.dynastyResult = { success: true, name: dynastyName };
+    } else if (ruler?.dynastyName) {
+      effects.dynastyResult = { success: false, error: "Dynasty already exists" };
+    }
+  }
+
+  if (action === "purge_court") {
+    // Execute all characters with loyalty < 40
+    const characters = await ctx.db
+      .query("characters")
+      .withIndex("by_territory", (q: any) => q.eq("territoryId", territory._id))
+      .filter((q: any) => q.and(
+        q.eq(q.field("isAlive"), true),
+        q.neq(q.field("role"), "ruler")
+      ))
+      .collect();
+
+    const toPurge = characters.filter((c: any) => c.traits.loyalty < 40);
+    let purged = 0;
+    let innocents = 0;
+
+    for (const victim of toPurge) {
+      const wasGuilty = victim.activePlots.length > 0;
+      await ctx.db.patch(victim._id, {
+        isAlive: false,
+        deathTick: currentTick,
+        deathCause: "purged",
+      });
+      purged++;
+      if (!wasGuilty) innocents++;
+    }
+
+    await ctx.db.patch(territory._id, {
+      happiness: Math.max(0, territory.happiness - 15 - (innocents * 5)),
+    });
+
+    effects.purgeResult = { success: true, purged, innocents };
+  }
+
+  if (action === "hold_feast") {
+    // Boost happiness and loyalty
+    const characters = await ctx.db
+      .query("characters")
+      .withIndex("by_territory", (q: any) => q.eq("territoryId", territory._id))
+      .filter((q: any) => q.eq(q.field("isAlive"), true))
+      .collect();
+
+    for (const char of characters) {
+      await ctx.db.patch(char._id, {
+        traits: {
+          ...char.traits,
+          loyalty: char.traits.loyalty + 10, // No cap
+        },
+        emotionalState: {
+          ...char.emotionalState,
+          contentment: char.emotionalState.contentment + 15, // No cap
+        },
+      });
+    }
+
+    await ctx.db.patch(territory._id, {
+      happiness: territory.happiness + 5, // No cap
+      wealth: Math.max(0, territory.wealth - 15),
+      food: Math.max(0, territory.food - 10),
+    });
+
+    // Reduce tensions
+    const tensions = await ctx.db
+      .query("tensionIndicators")
+      .withIndex("by_territory", (q: any) => q.eq("territoryId", territory._id))
+      .first();
+
+    if (tensions) {
+      await ctx.db.patch(tensions._id, {
+        coupLikelihood: Math.max(0, tensions.coupLikelihood - 15),
+        rebellionLikelihood: Math.max(0, tensions.rebellionLikelihood - 10),
+      });
+    }
+
+    effects.feastResult = { success: true };
+  }
+
+  if (action === "address_decadence") {
+    // Reduce decadence at cost of happiness
+    const prosperity = await ctx.db
+      .query("prosperityTiers")
+      .withIndex("by_territory", (q: any) => q.eq("territoryId", territory._id))
+      .first();
+
+    if (prosperity) {
+      await ctx.db.patch(prosperity._id, {
+        decadenceLevel: Math.max(0, prosperity.decadenceLevel - 20),
+        complacencyLevel: Math.max(0, prosperity.complacencyLevel - 10),
+      });
+    }
+
+    await ctx.db.patch(territory._id, {
+      happiness: Math.max(0, territory.happiness - 5),
+    });
+
+    effects.decadenceResult = { success: true };
   }
 
   // Apply relationship-affecting actions
@@ -850,7 +1112,7 @@ async function applyActionEffects(
       switch (action) {
         case "send_scouts":
           // Scouts make first contact, slightly improves relations
-          relationshipChanges.trust = Math.min(100, relationship.trust + 5);
+          relationshipChanges.trust = relationship.trust + 5; // No cap
           if (relationship.status === "neutral") {
             // First contact!
             effects.firstContact = true;
@@ -859,16 +1121,16 @@ async function applyActionEffects(
 
         case "share_knowledge":
           // Sharing knowledge builds trust
-          relationshipChanges.trust = Math.min(100, relationship.trust + 15);
+          relationshipChanges.trust = relationship.trust + 15; // No cap - trust can grow naturally
           if (relationship.trust >= 25 && relationship.status === "neutral") {
             relationshipChanges.status = "friendly";
           }
           // Both tribes gain knowledge
           await ctx.db.patch(territory._id, {
-            knowledge: Math.min(100, territory.knowledge + 2),
+            knowledge: territory.knowledge + 2, // No cap
           });
           await ctx.db.patch(targetTerritory._id, {
-            knowledge: Math.min(100, targetTerritory.knowledge + 2),
+            knowledge: targetTerritory.knowledge + 2, // No cap
           });
           effects.knowledgeShared = true;
           break;
@@ -877,7 +1139,7 @@ async function applyActionEffects(
           // Auto-accept trade if trust is neutral or positive
           if (relationship.trust >= -10) {
             relationshipChanges.hasTradeAgreement = true;
-            relationshipChanges.trust = Math.min(100, relationship.trust + 8);
+            relationshipChanges.trust = relationship.trust + 8; // No cap
             if (relationship.status === "neutral") {
               relationshipChanges.status = "friendly";
             }
@@ -907,16 +1169,16 @@ async function applyActionEffects(
           const { calculateWarEffects } = await import("../simulation/resources");
           const raidResult = calculateWarEffects(territory, targetTerritory);
 
-          // Apply effects
+          // Apply effects - no caps on food gains (can plunder more than 100)
           await ctx.db.patch(territory._id, {
             population: Math.max(1, territory.population + (raidResult.attackerCosts.population || 0)),
-            food: Math.max(0, Math.min(100, territory.food + (raidResult.attackerCosts.food || 0))),
+            food: Math.max(0, territory.food + (raidResult.attackerCosts.food || 0)),
             happiness: Math.max(0, territory.happiness + (raidResult.attackerCosts.happiness || 0)),
             military: Math.max(0, territory.military + (raidResult.attackerCosts.military || 0)),
           });
           await ctx.db.patch(targetTerritory._id, {
             population: Math.max(1, targetTerritory.population + (raidResult.defenderCosts.population || 0)),
-            food: Math.max(0, Math.min(100, targetTerritory.food + (raidResult.defenderCosts.food || 0))),
+            food: Math.max(0, targetTerritory.food + (raidResult.defenderCosts.food || 0)),
             happiness: Math.max(0, targetTerritory.happiness + (raidResult.defenderCosts.happiness || 0)),
             wealth: Math.max(0, targetTerritory.wealth + (raidResult.defenderCosts.wealth || 0)),
           });
@@ -940,7 +1202,7 @@ async function applyActionEffects(
           if (relationship.pendingPeaceOffer && relationship.pendingPeaceOffer !== territory._id) {
             // They offered peace, we accept
             relationshipChanges.status = "neutral";
-            relationshipChanges.trust = Math.min(100, relationship.trust + 20);
+            relationshipChanges.trust = relationship.trust + 20; // No cap
             relationshipChanges.pendingPeaceOffer = undefined;
             relationshipChanges.peaceOfferTerms = undefined;
             effects.peaceAccepted = true;
@@ -955,7 +1217,7 @@ async function applyActionEffects(
           // Admit defeat
           if (relationship.status === "hostile" || relationship.status === "at_war") {
             relationshipChanges.status = "tense";
-            relationshipChanges.trust = Math.min(100, relationship.trust + 10);
+            relationshipChanges.trust = relationship.trust + 10; // No cap
             relationshipChanges.surrenderedTo = targetTerritory._id;
             relationshipChanges.pendingPeaceOffer = undefined;
             relationshipChanges.peaceOfferTerms = undefined;
@@ -966,10 +1228,10 @@ async function applyActionEffects(
               influence: Math.max(0, territory.influence - 10),
               happiness: Math.max(0, territory.happiness - 10),
             });
-            // Victor gains
+            // Victor gains - no caps
             await ctx.db.patch(targetTerritory._id, {
-              wealth: Math.min(100, targetTerritory.wealth + 10),
-              influence: Math.min(100, targetTerritory.influence + 8),
+              wealth: targetTerritory.wealth + 10,
+              influence: targetTerritory.influence + 8,
             });
             effects.surrendered = true;
           } else {
@@ -994,7 +1256,7 @@ async function applyActionEffects(
             relationshipChanges.status = "allied";
             relationshipChanges.hasAlliance = true;
             relationshipChanges.hasTradeAgreement = true;
-            relationshipChanges.trust = Math.min(100, relationship.trust + 20);
+            relationshipChanges.trust = relationship.trust + 20; // No cap
 
             // Alliance military bonus applied passively
             effects.allianceFormed = true;
@@ -1018,7 +1280,7 @@ async function applyActionEffects(
           );
           effects.tradeRouteResult = tradeRouteResult;
           if (tradeRouteResult.success) {
-            relationshipChanges.trust = Math.min(100, relationship.trust + 5);
+            relationshipChanges.trust = relationship.trust + 5; // No cap
           }
           break;
 
@@ -1115,7 +1377,7 @@ async function applyActionEffects(
             );
             effects.shareTechResult = shareResult;
             if (shareResult.success) {
-              relationshipChanges.trust = Math.min(100, relationship.trust + 10);
+              relationshipChanges.trust = relationship.trust + 10; // No cap
             }
           }
           break;
@@ -1134,6 +1396,160 @@ async function applyActionEffects(
               relationshipChanges.status = "tense";
               relationshipChanges.hasAlliance = false;
             }
+          }
+          break;
+
+        // =============================================
+        // ENGAGEMENT - VENDETTA & RECONCILIATION
+        // =============================================
+
+        case "declare_vendetta":
+          // Create a hereditary rivalry
+          const ourRuler = await ctx.db
+            .query("characters")
+            .withIndex("by_territory", (q: any) => q.eq("territoryId", territory._id))
+            .filter((q: any) => q.and(q.eq(q.field("role"), "ruler"), q.eq(q.field("isAlive"), true)))
+            .first();
+
+          const theirRuler = await ctx.db
+            .query("characters")
+            .withIndex("by_territory", (q: any) => q.eq("territoryId", targetTerritory._id))
+            .filter((q: any) => q.and(q.eq(q.field("role"), "ruler"), q.eq(q.field("isAlive"), true)))
+            .first();
+
+          if (ourRuler && theirRuler) {
+            await ctx.db.insert("rivalries", {
+              character1Id: ourRuler._id,
+              character2Id: theirRuler._id,
+              territory1Id: territory._id,
+              territory2Id: targetTerritory._id,
+              intensity: 70,
+              rivalryType: "blood_feud",
+              reasons: [{
+                reason: "vendetta_declared",
+                tick: currentTick,
+                description: `${ourRuler.name} declared a blood feud against ${theirRuler.name}`,
+                intensityAdded: 70,
+              }],
+              isHereditary: true,
+              status: "active",
+              startTick: currentTick,
+            });
+            relationshipChanges.trust = Math.max(-100, relationship.trust - 40);
+            relationshipChanges.status = "hostile";
+            relationshipChanges.hasAlliance = false;
+            relationshipChanges.hasTradeAgreement = false;
+            effects.vendettaResult = { success: true };
+          } else {
+            effects.vendettaResult = { success: false, error: "Missing rulers" };
+          }
+          break;
+
+        case "seek_reconciliation":
+          // Try to reduce rivalry intensity
+          const existingRivalry = await ctx.db
+            .query("rivalries")
+            .withIndex("by_territory1", (q: any) => q.eq("territory1Id", territory._id))
+            .filter((q: any) => q.and(
+              q.eq(q.field("territory2Id"), targetTerritory._id),
+              q.eq(q.field("status"), "active")
+            ))
+            .first();
+
+          const reverseRivalry = !existingRivalry ? await ctx.db
+            .query("rivalries")
+            .withIndex("by_territory1", (q: any) => q.eq("territory1Id", targetTerritory._id))
+            .filter((q: any) => q.and(
+              q.eq(q.field("territory2Id"), territory._id),
+              q.eq(q.field("status"), "active")
+            ))
+            .first() : null;
+
+          const rivalry = existingRivalry || reverseRivalry;
+          if (rivalry) {
+            const newIntensity = Math.max(0, rivalry.intensity - 25);
+            const newReasons = [...rivalry.reasons, {
+              reason: "reconciliation_attempt",
+              tick: currentTick,
+              description: "Attempted reconciliation reduced tensions",
+              intensityAdded: -25,
+            }];
+
+            if (newIntensity <= 10) {
+              await ctx.db.patch(rivalry._id, {
+                status: "resolved",
+                endTick: currentTick,
+                intensity: 0,
+                reasons: newReasons,
+              });
+              effects.reconciliationResult = { success: true, resolved: true };
+            } else {
+              await ctx.db.patch(rivalry._id, {
+                intensity: newIntensity,
+                reasons: newReasons,
+              });
+              effects.reconciliationResult = { success: true, newIntensity };
+            }
+
+            relationshipChanges.trust = relationship.trust + 15; // No cap
+          } else {
+            effects.reconciliationResult = { success: false, error: "No active rivalry to resolve" };
+          }
+          break;
+
+        case "arrange_marriage":
+          // Find heirs from both territories
+          const ourHeir = await ctx.db
+            .query("characters")
+            .withIndex("by_territory", (q: any) => q.eq("territoryId", territory._id))
+            .filter((q: any) => q.and(q.eq(q.field("role"), "heir"), q.eq(q.field("isAlive"), true)))
+            .first();
+
+          const theirHeir = await ctx.db
+            .query("characters")
+            .withIndex("by_territory", (q: any) => q.eq("territoryId", targetTerritory._id))
+            .filter((q: any) => q.and(q.eq(q.field("role"), "heir"), q.eq(q.field("isAlive"), true)))
+            .first();
+
+          if (ourHeir && theirHeir && relationship.trust >= 10) {
+            // Create relationship between heirs
+            const heirRelationships = [...ourHeir.relationships, {
+              characterId: theirHeir._id,
+              type: "ally" as const,
+              strength: 50,
+              isSecret: false,
+            }];
+            await ctx.db.patch(ourHeir._id, { relationships: heirRelationships });
+
+            relationshipChanges.trust = relationship.trust + 25; // No cap
+            if (relationship.status === "neutral" || relationship.status === "friendly") {
+              relationshipChanges.status = "allied";
+              relationshipChanges.hasAlliance = true;
+            }
+
+            // Check if there's a rivalry to reduce
+            const marriageRivalry = await ctx.db
+              .query("rivalries")
+              .withIndex("by_territory1", (q: any) => q.eq("territory1Id", territory._id))
+              .filter((q: any) => q.and(
+                q.eq(q.field("territory2Id"), targetTerritory._id),
+                q.eq(q.field("status"), "active")
+              ))
+              .first();
+
+            if (marriageRivalry) {
+              await ctx.db.patch(marriageRivalry._id, {
+                intensity: Math.max(0, marriageRivalry.intensity - 30),
+              });
+            }
+
+            effects.marriageResult = { success: true };
+          } else if (!ourHeir) {
+            effects.marriageResult = { success: false, error: "No heir to marry" };
+          } else if (!theirHeir) {
+            effects.marriageResult = { success: false, error: "Target has no heir" };
+          } else {
+            effects.marriageResult = { success: false, error: "Relations not good enough" };
           }
           break;
       }
@@ -1209,7 +1625,27 @@ function getEventSeverity(action: string): "info" | "positive" | "negative" | "c
     case "lay_siege":
     case "assault_walls":
     case "steal_technology":
+    case "execute_character":
+    case "purge_court":
+    case "declare_vendetta":
       return "critical";
+
+    // Engagement - positive
+    case "hold_feast":
+    case "found_dynasty":
+    case "seek_reconciliation":
+    case "arrange_marriage":
+      return "positive";
+
+    // Engagement - negative
+    case "bribe_character":
+    case "address_decadence":
+      return "negative";
+
+    // Engagement - info
+    case "investigate_plot":
+    case "name_heir":
+      return "info";
 
     default:
       return "info";
@@ -1226,3 +1662,97 @@ function buildEventDescription(
   // The reasoning should already be creative and story-like
   return reasoning;
 }
+
+// =============================================
+// ENGAGEMENT SYSTEM - QUERIES
+// =============================================
+
+export const getTerritoryCharacters = internalQuery({
+  args: { territoryId: v.id("territories") },
+  handler: async (ctx, args) => {
+    const characters = await ctx.db
+      .query("characters")
+      .withIndex("by_territory", (q) => q.eq("territoryId", args.territoryId))
+      .filter((q) => q.eq(q.field("isAlive"), true))
+      .collect();
+
+    return characters;
+  },
+});
+
+export const getTerritoryTensions = internalQuery({
+  args: { territoryId: v.id("territories") },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("tensionIndicators")
+      .withIndex("by_territory", (q) => q.eq("territoryId", args.territoryId))
+      .first();
+  },
+});
+
+export const getTerritoryRivalries = internalQuery({
+  args: { territoryId: v.id("territories") },
+  handler: async (ctx, args) => {
+    // Get rivalries where this territory is involved
+    const asTerritory1 = await ctx.db
+      .query("rivalries")
+      .withIndex("by_territory1", (q) => q.eq("territory1Id", args.territoryId))
+      .filter((q) => q.eq(q.field("status"), "active"))
+      .collect();
+
+    const asTerritory2 = await ctx.db
+      .query("rivalries")
+      .withIndex("by_territory2", (q) => q.eq("territory2Id", args.territoryId))
+      .filter((q) => q.eq(q.field("status"), "active"))
+      .collect();
+
+    // Fetch character and territory names for each rivalry
+    const rivalries = [];
+
+    for (const rivalry of [...asTerritory1, ...asTerritory2]) {
+      const isTerritory1 = rivalry.territory1Id === args.territoryId;
+      const opponentTerritoryId = isTerritory1 ? rivalry.territory2Id : rivalry.territory1Id;
+      const opponentCharacterId = isTerritory1 ? rivalry.character2Id : rivalry.character1Id;
+
+      const opponentTerritory = await ctx.db.get(opponentTerritoryId);
+      const opponentCharacter = await ctx.db.get(opponentCharacterId);
+
+      rivalries.push({
+        ...rivalry,
+        opponentName: opponentCharacter?.name || "Unknown",
+        opponentTerritory: opponentTerritory?.name || "Unknown",
+      });
+    }
+
+    return rivalries;
+  },
+});
+
+export const getTerritoryProsperity = internalQuery({
+  args: { territoryId: v.id("territories") },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("prosperityTiers")
+      .withIndex("by_territory", (q) => q.eq("territoryId", args.territoryId))
+      .first();
+  },
+});
+
+export const getRecentSuccession = internalQuery({
+  args: { territoryId: v.id("territories"), sinceTicksAgo: v.number() },
+  handler: async (ctx, args) => {
+    const world = await ctx.db.query("world").first();
+    if (!world) return null;
+
+    const minTick = world.tick - args.sinceTicksAgo;
+
+    const succession = await ctx.db
+      .query("successionEvents")
+      .withIndex("by_territory", (q) => q.eq("territoryId", args.territoryId))
+      .filter((q) => q.gte(q.field("tick"), minTick))
+      .order("desc")
+      .first();
+
+    return succession;
+  },
+});

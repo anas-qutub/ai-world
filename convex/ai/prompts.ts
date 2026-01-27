@@ -1,4 +1,94 @@
-import { Doc } from "../_generated/dataModel";
+import { Doc, Id } from "../_generated/dataModel";
+
+// =============================================
+// ENGAGEMENT SYSTEM - CHARACTER & INTRIGUE CONTEXT
+// =============================================
+
+export interface CharacterContext {
+  id: Id<"characters">;
+  name: string;
+  title: string;
+  role: string;
+  age: number;
+  traits: {
+    ambition: number;
+    greed: number;
+    loyalty: number;
+    honor: number;
+    cruelty: number;
+    compassion: number;
+    cunning: number;
+    wisdom: number;
+    paranoia: number;
+    courage: number;
+    pride: number;
+    wrath: number;
+    charisma: number;
+    diplomacy: number;
+  };
+  emotionalState: {
+    hope: number;
+    fear: number;
+    shame: number;
+    despair: number;
+    contentment: number;
+    rage: number;
+  };
+  secretGoal?: string;
+  isPlotting: boolean;
+  plotType?: string;
+}
+
+export interface TensionContext {
+  warLikelihood: number;
+  coupLikelihood: number;
+  famineLikelihood: number;
+  successionCrisisLikelihood: number;
+  rebellionLikelihood: number;
+  brewingConflicts: Array<{
+    targetName: string;
+    likelihood: number;
+    reason: string;
+  }>;
+}
+
+export interface RivalryContext {
+  opponentName: string;
+  opponentTerritory: string;
+  intensity: number;
+  rivalryType: string;
+  reasons: string[];
+  isHereditary: boolean;
+}
+
+export interface ProsperityContext {
+  currentTier: number;
+  tierName: string;
+  progressToNextTier: number;
+  ticksAtCurrentTier: number;
+  complacencyLevel: number;
+  decadenceLevel: number;
+  stabilityFactors: {
+    economicStability: number;
+    socialHarmony: number;
+    militaryReadiness: number;
+    politicalUnity: number;
+  };
+}
+
+export interface EngagementContext {
+  ruler?: CharacterContext;
+  heir?: CharacterContext;
+  courtMembers: CharacterContext[];
+  tensions?: TensionContext;
+  rivalries: RivalryContext[];
+  prosperity?: ProsperityContext;
+  suspectedPlots: number;
+  recentSuccession?: {
+    type: string;
+    narrative: string;
+  };
+}
 
 export const AVAILABLE_ACTIONS = [
   // === SURVIVAL ACTIONS ===
@@ -354,6 +444,79 @@ export const AVAILABLE_ACTIONS = [
     description: "Build a center of learning to accelerate research",
     effects: "Creates academy building. +research speed. Requires writing technology.",
   },
+
+  // =============================================
+  // ENGAGEMENT SYSTEM - CHARACTER & INTRIGUE ACTIONS
+  // =============================================
+  {
+    id: "execute_character",
+    name: "Execute Suspected Traitor",
+    description: "Execute a court member suspected of plotting against you. They may be innocent!",
+    effects: "Removes character. If innocent: -10 happiness, other characters fear you. If guilty: +5 stability.",
+  },
+  {
+    id: "investigate_plot",
+    name: "Investigate Suspected Plot",
+    description: "Spend resources to uncover conspiracies in your court",
+    effects: "May discover plots (chance based on your paranoia vs their cunning). Costs 5 wealth.",
+  },
+  {
+    id: "bribe_character",
+    name: "Bribe Court Member",
+    description: "Pay off a potentially disloyal court member to secure their loyalty",
+    effects: "Target loyalty +20, but greed +10. Costs 10 wealth. May backfire if they're too ambitious.",
+  },
+  {
+    id: "arrange_marriage",
+    name: "Arrange Political Marriage",
+    description: "Marry your heir to another ruler's family for alliance",
+    effects: "Creates or strengthens alliance. May reduce rivalry. Heir's loyalty may change.",
+    requiresTarget: true,
+  },
+  {
+    id: "name_heir",
+    name: "Name Official Heir",
+    description: "Designate an official successor to reduce succession crisis risk",
+    effects: "-30% succession crisis likelihood. Other ambitious characters may start plotting.",
+  },
+  {
+    id: "found_dynasty",
+    name: "Found Dynasty",
+    description: "Establish a named dynasty for your bloodline to build legacy",
+    effects: "+10 influence. Enables inheritance tracking. Creates lasting legacy.",
+  },
+  {
+    id: "purge_court",
+    name: "Purge the Court",
+    description: "Execute multiple suspected traitors at once (paranoid/desperate action)",
+    effects: "Removes all characters with loyalty < 40. May kill innocents. -15 happiness, +fear.",
+  },
+  {
+    id: "hold_feast",
+    name: "Hold Grand Feast",
+    description: "Host a celebration to improve morale and court loyalty",
+    effects: "+5 happiness, +10 loyalty for all court. Costs 15 wealth, 10 food. Reduces tensions.",
+  },
+  {
+    id: "address_decadence",
+    name: "Address Decadence",
+    description: "Implement austerity measures to combat corruption and excess",
+    effects: "-20 decadence, -5 happiness (temporary). Reduces plot chances from prosperity.",
+  },
+  {
+    id: "declare_vendetta",
+    name: "Declare Vendetta",
+    description: "Publicly declare a blood feud against a rival who wronged you",
+    effects: "Creates hereditary rivalry. +10 military motivation vs target. Cannot make peace easily.",
+    requiresTarget: true,
+  },
+  {
+    id: "seek_reconciliation",
+    name: "Seek Reconciliation",
+    description: "Attempt to resolve a rivalry through diplomacy or compensation",
+    effects: "May reduce rivalry intensity if both parties willing. Requires concessions.",
+    requiresTarget: true,
+  },
 ];
 
 export interface RelationshipContext {
@@ -370,12 +533,238 @@ export interface WorldContext {
   tick: number;
 }
 
+// =============================================
+// ENGAGEMENT CONTEXT BUILDER
+// =============================================
+
+function getTraitDescription(value: number): string {
+  if (value >= 90) return "Extreme";
+  if (value >= 75) return "Very High";
+  if (value >= 60) return "High";
+  if (value >= 40) return "Moderate";
+  if (value >= 25) return "Low";
+  if (value >= 10) return "Very Low";
+  return "Minimal";
+}
+
+function getEmotionalSummary(state: CharacterContext["emotionalState"]): string {
+  const dominant: string[] = [];
+  if (state.rage > 60) dominant.push("furious");
+  if (state.fear > 60) dominant.push("fearful");
+  if (state.despair > 60) dominant.push("despairing");
+  if (state.shame > 60) dominant.push("ashamed");
+  if (state.hope > 60) dominant.push("hopeful");
+  if (state.contentment > 60) dominant.push("content");
+
+  if (dominant.length === 0) {
+    if (state.contentment > 40 && state.hope > 40) return "stable and calm";
+    if (state.fear > 40 || state.despair > 40) return "uneasy";
+    return "neutral";
+  }
+  return dominant.join(", ");
+}
+
+function getTopTraits(traits: CharacterContext["traits"]): string[] {
+  const traitList = Object.entries(traits)
+    .map(([name, value]) => ({ name, value }))
+    .sort((a, b) => b.value - a.value)
+    .slice(0, 3);
+
+  return traitList.map(t => `${t.name} (${t.value})`);
+}
+
+function buildEngagementSection(context?: EngagementContext): string {
+  if (!context) return "";
+
+  const sections: string[] = [];
+
+  // === YOUR RULER ===
+  if (context.ruler) {
+    const r = context.ruler;
+    const topTraits = getTopTraits(r.traits);
+    const mood = getEmotionalSummary(r.emotionalState);
+
+    sections.push(`## Your Ruler: ${r.name} the ${r.title}
+
+- **Age:** ${r.age} years old
+- **Mood:** Currently ${mood}
+- **Defining Traits:** ${topTraits.join(", ")}
+- **Ambition:** ${getTraitDescription(r.traits.ambition)} (${r.traits.ambition})
+- **Loyalty:** ${getTraitDescription(r.traits.loyalty)} (${r.traits.loyalty})
+- **Cunning:** ${getTraitDescription(r.traits.cunning)} (${r.traits.cunning})
+- **Paranoia:** ${getTraitDescription(r.traits.paranoia)} (${r.traits.paranoia})
+${r.secretGoal && r.secretGoal !== "none" ? `- **Secret Desire:** ${formatSecretGoal(r.secretGoal)}` : ""}`);
+  }
+
+  // === HEIR ===
+  if (context.heir) {
+    const h = context.heir;
+    const dangerLevel = h.traits.ambition > 70 && h.traits.loyalty < 40 ? "⚠️ DANGEROUS" :
+                        h.traits.ambition > 50 && h.traits.loyalty < 50 ? "⚡ Watch closely" :
+                        "Loyal";
+
+    sections.push(`### Your Heir: ${h.name}
+- **Age:** ${h.age} | **Loyalty:** ${h.traits.loyalty} | **Ambition:** ${h.traits.ambition}
+- **Assessment:** ${dangerLevel}
+${h.isPlotting ? `- ⚠️ **SUSPECTED OF PLOTTING** (${h.plotType})` : ""}`);
+  }
+
+  // === COURT INTRIGUE ===
+  if (context.courtMembers.length > 0) {
+    const suspiciousMembers = context.courtMembers.filter(
+      m => m.traits.loyalty < 50 || m.traits.ambition > 60 || m.isPlotting
+    );
+
+    if (suspiciousMembers.length > 0 || context.suspectedPlots > 0) {
+      let courtSection = `## Court Intrigue
+
+**Suspected plots against you:** ${context.suspectedPlots}
+`;
+
+      for (const member of suspiciousMembers) {
+        const warnings: string[] = [];
+        if (member.traits.loyalty < 30) warnings.push("very disloyal");
+        else if (member.traits.loyalty < 50) warnings.push("questionable loyalty");
+        if (member.traits.ambition > 80) warnings.push("extremely ambitious");
+        else if (member.traits.ambition > 60) warnings.push("ambitious");
+        if (member.traits.greed > 70) warnings.push("greedy");
+        if (member.isPlotting) warnings.push(`PLOTTING ${member.plotType?.toUpperCase()}`);
+
+        if (warnings.length > 0) {
+          courtSection += `
+**${member.title} ${member.name}** (${member.role})
+- Cunning: ${member.traits.cunning} | Loyalty: ${member.traits.loyalty} | Ambition: ${member.traits.ambition}
+- ⚠️ Concerns: ${warnings.join(", ")}`;
+        }
+      }
+
+      sections.push(courtSection);
+    }
+  }
+
+  // === TENSIONS ===
+  if (context.tensions) {
+    const t = context.tensions;
+    const highTensions: string[] = [];
+
+    if (t.coupLikelihood > 40) highTensions.push(`Coup: ${t.coupLikelihood}%`);
+    if (t.rebellionLikelihood > 40) highTensions.push(`Rebellion: ${t.rebellionLikelihood}%`);
+    if (t.famineLikelihood > 40) highTensions.push(`Famine: ${t.famineLikelihood}%`);
+    if (t.successionCrisisLikelihood > 40) highTensions.push(`Succession Crisis: ${t.successionCrisisLikelihood}%`);
+
+    if (highTensions.length > 0 || t.brewingConflicts.length > 0) {
+      let tensionSection = `## Tension Indicators
+
+${highTensions.length > 0 ? `**Internal Threats:**
+${highTensions.map(h => `- ${h}`).join("\n")}` : "Internal situation stable."}
+`;
+
+      if (t.brewingConflicts.length > 0) {
+        tensionSection += `
+**Brewing Conflicts:**
+${t.brewingConflicts.map(c => `- War with ${c.targetName}: ${c.likelihood}% likely (${c.reason})`).join("\n")}`;
+      }
+
+      sections.push(tensionSection);
+    }
+  }
+
+  // === RIVALRIES ===
+  if (context.rivalries.length > 0) {
+    const activeRivalries = context.rivalries.filter(r => r.intensity > 20);
+
+    if (activeRivalries.length > 0) {
+      let rivalrySection = `## Your Rivals & Feuds
+`;
+      for (const rivalry of activeRivalries) {
+        const intensityDesc = rivalry.intensity >= 80 ? "🔥 BLOOD FEUD" :
+                             rivalry.intensity >= 60 ? "⚔️ Bitter enemies" :
+                             rivalry.intensity >= 40 ? "😠 Strong rivalry" :
+                             "😤 Tension";
+
+        rivalrySection += `
+**${rivalry.opponentName}** of ${rivalry.opponentTerritory} - ${intensityDesc} (${rivalry.intensity}/100)
+- Type: ${rivalry.rivalryType}${rivalry.isHereditary ? " (HEREDITARY - passes to heirs)" : ""}
+- Causes: ${rivalry.reasons.slice(-2).join("; ")}`;
+      }
+
+      sections.push(rivalrySection);
+    }
+  }
+
+  // === PROSPERITY ===
+  if (context.prosperity) {
+    const p = context.prosperity;
+    const tierEmoji = ["😰", "😐", "🙂", "😊", "🌟", "👑"][p.currentTier] || "❓";
+
+    let prosperitySection = `## Prosperity: ${tierEmoji} ${p.tierName} (Tier ${p.currentTier}/5)
+
+- **Progress to next tier:** ${p.progressToNextTier}%
+- **Time at current tier:** ${Math.floor(p.ticksAtCurrentTier / 12)} years`;
+
+    if (p.complacencyLevel > 30 || p.decadenceLevel > 20) {
+      prosperitySection += `
+
+**⚠️ Warnings:**`;
+      if (p.complacencyLevel > 30) {
+        prosperitySection += `
+- Complacency: ${p.complacencyLevel}/100 (${p.complacencyLevel > 60 ? "DANGEROUS - people grow lazy" : "Growing - watch for stagnation"})`;
+      }
+      if (p.decadenceLevel > 20) {
+        prosperitySection += `
+- Decadence: ${p.decadenceLevel}/100 (${p.decadenceLevel > 50 ? "CRITICAL - corruption breeds plots!" : "Rising - excess is taking hold"})`;
+      }
+    }
+
+    // Stability factors
+    const stability = p.stabilityFactors;
+    const weakFactors: string[] = [];
+    if (stability.economicStability < 40) weakFactors.push("Economy fragile");
+    if (stability.socialHarmony < 40) weakFactors.push("Social unrest");
+    if (stability.militaryReadiness < 40) weakFactors.push("Military weak");
+    if (stability.politicalUnity < 40) weakFactors.push("Political division");
+
+    if (weakFactors.length > 0) {
+      prosperitySection += `
+- **Weak points:** ${weakFactors.join(", ")}`;
+    }
+
+    sections.push(prosperitySection);
+  }
+
+  // === RECENT SUCCESSION ===
+  if (context.recentSuccession) {
+    sections.push(`## Recent Succession Event
+
+**Type:** ${context.recentSuccession.type}
+${context.recentSuccession.narrative}`);
+  }
+
+  return sections.length > 0 ? sections.join("\n\n") : "";
+}
+
+function formatSecretGoal(goal: string): string {
+  const goalDescriptions: Record<string, string> = {
+    seize_throne: "Covets the throne for themselves",
+    accumulate_wealth: "Obsessed with amassing riches",
+    revenge: "Seeks vengeance for past wrongs",
+    protect_family: "Will do anything to protect their family",
+    foreign_allegiance: "Secretly loyal to a foreign power",
+    religious_dominance: "Wants to impose their faith",
+    independence: "Dreams of breaking away",
+    glory: "Craves personal glory and fame",
+    none: "No hidden agenda",
+  };
+  return goalDescriptions[goal] || goal;
+}
+
 export function buildDecisionPrompt(
   territory: Doc<"territories">,
   relationships: RelationshipContext[],
   recentDecisions: Array<{ action: string; reasoning: string; tick: number }>,
   worldContext: WorldContext,
-  otherTerritories: Array<{ name: string; resources: Doc<"territories"> }>
+  otherTerritories: Array<{ name: string; resources: Doc<"territories"> }>,
+  engagementContext?: EngagementContext
 ): string {
   const seasonNames = ["Early Spring", "Spring", "Late Spring", "Early Summer", "Summer", "Late Summer", "Early Autumn", "Autumn", "Late Autumn", "Early Winter", "Winter", "Late Winter"];
   const season = seasonNames[worldContext.month - 1];
@@ -427,6 +816,8 @@ ${flag ? `- **Flag/Symbol:** ${flag}` : ""}
 ${traditions && traditions.length > 0 ? `- **Traditions:** ${traditions.map(t => t.name).join(", ")}` : ""}
 ${beliefs ? `- **Beliefs:** ${beliefs}` : ""}
 ` : "*Your tribe has no established cultural identity yet. Consider naming your people and developing traditions!*"}
+
+${buildEngagementSection(engagementContext)}
 
 ## Other Tribes (What You Know)
 

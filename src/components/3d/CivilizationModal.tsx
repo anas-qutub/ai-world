@@ -49,7 +49,7 @@ export function CivilizationModal({
   }, [onClose]);
 
   return (
-    <div className="fixed inset-0 z-50 bg-[var(--void)]">
+    <div className="absolute inset-0 z-40 bg-[var(--void)]">
       {/* Header overlay */}
       <div className="absolute top-0 left-0 right-0 z-10 p-4 flex justify-between items-center bg-gradient-to-b from-black/80 via-black/40 to-transparent">
         <div className="flex items-center gap-4">

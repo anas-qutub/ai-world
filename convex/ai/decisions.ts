@@ -3,7 +3,7 @@
 import { internalAction } from "../_generated/server";
 import { internal } from "../_generated/api";
 import { v } from "convex/values";
-import { buildDecisionPrompt, AVAILABLE_ACTIONS } from "./prompts";
+import { buildDecisionPrompt, AVAILABLE_ACTIONS, EngagementContext, CharacterContext, TensionContext, RivalryContext, ProsperityContext } from "./prompts";
 import { callAnthropic } from "./providers/anthropic";
 import { Doc, Id } from "../_generated/dataModel";
 
@@ -65,6 +65,113 @@ export const makeDecision = internalAction({
       { territoryId: agent.territoryId, limit: 3 }
     );
 
+    // =============================================
+    // ENGAGEMENT CONTEXT - Characters, Tensions, Rivalries, Prosperity
+    // =============================================
+
+    // Fetch all engagement data in parallel
+    const [characters, tensions, rivalries, prosperity, recentSuccession] = await Promise.all([
+      ctx.runQuery(internal.ai.helpers.getTerritoryCharacters, { territoryId: agent.territoryId }),
+      ctx.runQuery(internal.ai.helpers.getTerritoryTensions, { territoryId: agent.territoryId }),
+      ctx.runQuery(internal.ai.helpers.getTerritoryRivalries, { territoryId: agent.territoryId }),
+      ctx.runQuery(internal.ai.helpers.getTerritoryProsperity, { territoryId: agent.territoryId }),
+      ctx.runQuery(internal.ai.helpers.getRecentSuccession, { territoryId: agent.territoryId, sinceTicksAgo: 12 }), // Last year
+    ]);
+
+    // Build engagement context
+    let engagementContext: EngagementContext | undefined;
+
+    if (characters && characters.length > 0) {
+      // Transform characters to CharacterContext
+      const transformCharacter = (char: Doc<"characters">): CharacterContext => ({
+        id: char._id,
+        name: char.name,
+        title: char.title,
+        role: char.role,
+        age: char.age,
+        traits: char.traits,
+        emotionalState: char.emotionalState,
+        secretGoal: char.secretGoal,
+        isPlotting: char.activePlots.length > 0,
+        plotType: char.activePlots.length > 0 ? char.activePlots[0].plotType : undefined,
+      });
+
+      // Find ruler, heir, and other court members
+      const ruler = characters.find((c: Doc<"characters">) => c.role === "ruler");
+      const heir = characters.find((c: Doc<"characters">) => c.role === "heir");
+      const courtMembers = characters.filter(
+        (c: Doc<"characters">) => c.role !== "ruler" && c.role !== "heir"
+      );
+
+      // Count suspected plots
+      const suspectedPlots = characters.reduce(
+        (count: number, c: Doc<"characters">) => count + c.activePlots.filter((p: { discovered: boolean }) => p.discovered).length,
+        0
+      );
+
+      // Build tension context
+      let tensionContext: TensionContext | undefined;
+      if (tensions) {
+        tensionContext = {
+          warLikelihood: tensions.warLikelihood,
+          coupLikelihood: tensions.coupLikelihood,
+          famineLikelihood: tensions.famineLikelihood,
+          successionCrisisLikelihood: tensions.successionCrisisLikelihood,
+          rebellionLikelihood: tensions.rebellionLikelihood,
+          brewingConflicts: await Promise.all(
+            tensions.brewingConflicts.map(async (conflict: { targetId: any; likelihood: number; reason: string }) => {
+              const targetTerritory = await ctx.runQuery(internal.ai.helpers.getTerritory, {
+                territoryId: conflict.targetId,
+              });
+              return {
+                targetName: targetTerritory?.name || "Unknown",
+                likelihood: conflict.likelihood,
+                reason: conflict.reason,
+              };
+            })
+          ),
+        };
+      }
+
+      // Build rivalry contexts
+      const rivalryContexts: RivalryContext[] = rivalries ? rivalries.map((r: any) => ({
+        opponentName: r.opponentName,
+        opponentTerritory: r.opponentTerritory,
+        intensity: r.intensity,
+        rivalryType: r.rivalryType,
+        reasons: r.reasons.map((reason: { description: string }) => reason.description),
+        isHereditary: r.isHereditary,
+      })) : [];
+
+      // Build prosperity context
+      let prosperityContext: ProsperityContext | undefined;
+      if (prosperity) {
+        prosperityContext = {
+          currentTier: prosperity.currentTier,
+          tierName: prosperity.tierName,
+          progressToNextTier: prosperity.progressToNextTier,
+          ticksAtCurrentTier: prosperity.ticksAtCurrentTier,
+          complacencyLevel: prosperity.complacencyLevel,
+          decadenceLevel: prosperity.decadenceLevel,
+          stabilityFactors: prosperity.stabilityFactors,
+        };
+      }
+
+      engagementContext = {
+        ruler: ruler ? transformCharacter(ruler) : undefined,
+        heir: heir ? transformCharacter(heir) : undefined,
+        courtMembers: courtMembers.map(transformCharacter),
+        tensions: tensionContext,
+        rivalries: rivalryContexts,
+        prosperity: prosperityContext,
+        suspectedPlots,
+        recentSuccession: recentSuccession ? {
+          type: recentSuccession.successionType,
+          narrative: recentSuccession.narrative,
+        } : undefined,
+      };
+    }
+
     // Build the prompt
     const userPrompt = buildDecisionPrompt(
       territory,
@@ -91,7 +198,8 @@ export const makeDecision = internalAction({
         month: world.month,
         tick: world.tick,
       },
-      otherTerritories
+      otherTerritories,
+      engagementContext
     );
 
     // Call the AI provider

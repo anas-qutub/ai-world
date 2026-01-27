@@ -18,6 +18,16 @@ import { processArmyUpkeep } from "./military";
 import { checkForBattles, updateWarStatus, processRetreatingArmies } from "./combat";
 import { processSieges } from "./siege";
 import { getCurrentEra, TECHNOLOGY_ERAS } from "./technology";
+// Engagement system imports
+import { processCharacterAging, applyCharacterProsperityEffects } from "./characters";
+import { processPlots, checkPlotOpportunities } from "./plots";
+import { updateActiveWars, recordBattle } from "./warChronicles";
+import { updateLeaderboards } from "./leaderboards";
+import { updateStreaks, recordPopulationPeak } from "./streaks";
+import { calculateTensions } from "./tensions";
+import { processRivalries } from "./rivalries";
+import { generateYearlyChronicle } from "./recaps";
+import { updateProsperityTier, applyProsperityEffects, initializeProsperityTier } from "./prosperity";
 
 // System interconnection effects
 const SYSTEM_TRIGGERS = {
@@ -227,15 +237,15 @@ export const processTick = internalMutation({
       const t1 = territories.find((t) => t._id === rel.territory1Id);
       const t2 = territories.find((t) => t._id === rel.territory2Id);
 
-      // Apply trade agreement bonuses
+      // Apply trade agreement bonuses (no caps - wealth can grow naturally)
       if (rel.hasTradeAgreement && t1 && t2) {
         const { territory1Bonus, territory2Bonus } = calculateTradeBonus(t1, t2);
 
         await ctx.db.patch(rel.territory1Id, {
-          wealth: Math.min(100, t1.wealth + territory1Bonus),
+          wealth: t1.wealth + territory1Bonus,
         });
         await ctx.db.patch(rel.territory2Id, {
-          wealth: Math.min(100, t2.wealth + territory2Bonus),
+          wealth: t2.wealth + territory2Bonus,
         });
       }
 
@@ -368,14 +378,189 @@ export const processTick = internalMutation({
         // This is handled in processDemographics
       }
 
-      // System interconnection: Prosperity triggers
+      // System interconnection: Prosperity triggers (no cap on happiness)
       if (territory.food > SYSTEM_TRIGGERS.PROSPERITY_FOOD_THRESHOLD &&
         territory.wealth > SYSTEM_TRIGGERS.PROSPERITY_WEALTH_THRESHOLD) {
         // Prosperity bonus - small happiness boost
         await ctx.db.patch(territory._id, {
-          happiness: Math.min(100, territory.happiness + 1),
+          happiness: territory.happiness + 1,
         });
       }
+    }
+
+    // =============================================
+    // PHASE 6: ENGAGEMENT SYSTEMS
+    // =============================================
+
+    // Process character aging and natural deaths
+    const agingEvents = await processCharacterAging(ctx, newTick);
+    for (const event of agingEvents) {
+      if (event.type === "death") {
+        await ctx.db.insert("events", {
+          tick: newTick,
+          type: "crisis",
+          title: "Character Death",
+          description: event.description,
+          severity: "critical",
+          createdAt: Date.now(),
+        });
+      }
+    }
+
+    // Process prosperity tiers and their effects
+    for (const territory of territories) {
+      // Initialize prosperity tier if it doesn't exist
+      const existingProsperity = await ctx.db
+        .query("prosperityTiers")
+        .withIndex("by_territory", (q) => q.eq("territoryId", territory._id))
+        .first();
+
+      if (!existingProsperity) {
+        await initializeProsperityTier(ctx, territory._id, newTick);
+      }
+
+      // Update prosperity tier
+      const prosperityResult = await updateProsperityTier(ctx, territory._id, newTick);
+
+      // Log prosperity tier changes
+      if (prosperityResult.events) {
+        for (const eventDesc of prosperityResult.events) {
+          await ctx.db.insert("events", {
+            tick: newTick,
+            type: "breakthrough",
+            territoryId: territory._id,
+            title: "Prosperity Change",
+            description: eventDesc,
+            severity: eventDesc.includes("Golden Age") ? "positive" : "info",
+            createdAt: Date.now(),
+          });
+        }
+      }
+
+      // Apply prosperity benefits
+      await applyProsperityEffects(ctx, territory._id, newTick);
+
+      // Get prosperity tier for plot opportunities
+      const prosperity = await ctx.db
+        .query("prosperityTiers")
+        .withIndex("by_territory", (q) => q.eq("territoryId", territory._id))
+        .first();
+
+      // Check if characters should start plotting (prosperity breeds intrigue)
+      if (prosperity) {
+        await checkPlotOpportunities(
+          ctx,
+          territory._id,
+          newTick,
+          prosperity.currentTier,
+          prosperity.decadenceLevel
+        );
+
+        // Apply prosperity effects on characters (complacency, etc.)
+        await applyCharacterProsperityEffects(
+          ctx,
+          territory._id,
+          prosperity.currentTier,
+          newTick
+        );
+      }
+
+      // Process active plots
+      const plotEvents = await processPlots(ctx, territory._id, newTick);
+
+      // Log plot events
+      for (const event of plotEvents) {
+        await ctx.db.insert("events", {
+          tick: newTick,
+          type: event.severity === "critical" ? "crisis" : "decision",
+          territoryId: territory._id,
+          title: event.type === "plot_discovered" ? "Plot Discovered!" :
+                 event.type === "plot_executed" ? "Scheme Executed!" :
+                 event.type === "plotter_executed" ? "Traitor Executed" : "Court Intrigue",
+          description: event.description,
+          severity: event.severity,
+          createdAt: Date.now(),
+        });
+      }
+
+      // Calculate tension indicators
+      await calculateTensions(ctx, territory._id, newTick);
+
+      // Update streaks
+      const streakEvents = await updateStreaks(ctx, territory._id, newTick);
+      for (const eventDesc of streakEvents) {
+        await ctx.db.insert("events", {
+          tick: newTick,
+          type: "breakthrough",
+          territoryId: territory._id,
+          title: "Streak Achievement",
+          description: eventDesc,
+          severity: "positive",
+          createdAt: Date.now(),
+        });
+      }
+
+      // Check for population records
+      const refreshedTerritory = await ctx.db.get(territory._id);
+      if (refreshedTerritory) {
+        await recordPopulationPeak(
+          ctx,
+          territory._id,
+          refreshedTerritory.name,
+          refreshedTerritory.population,
+          newTick
+        );
+      }
+    }
+
+    // Update active wars
+    const warEvents = await updateActiveWars(ctx, newTick);
+    for (const eventDesc of warEvents) {
+      await ctx.db.insert("events", {
+        tick: newTick,
+        type: "war",
+        title: "War Update",
+        description: eventDesc,
+        severity: "info",
+        createdAt: Date.now(),
+      });
+    }
+
+    // Process rivalries
+    const rivalryEvents = await processRivalries(ctx, newTick);
+    for (const eventDesc of rivalryEvents) {
+      await ctx.db.insert("events", {
+        tick: newTick,
+        type: "crisis",
+        title: "Rivalry",
+        description: eventDesc,
+        severity: "negative",
+        createdAt: Date.now(),
+      });
+    }
+
+    // Update leaderboards (every year, at start of year)
+    if (newMonth === 1) {
+      const leaderboardEvents = await updateLeaderboards(ctx, newTick);
+      for (const eventDesc of leaderboardEvents) {
+        await ctx.db.insert("events", {
+          tick: newTick,
+          type: "system",
+          title: "Leaderboard Update",
+          description: eventDesc,
+          severity: "info",
+          createdAt: Date.now(),
+        });
+      }
+    }
+
+    // Generate yearly chronicle (at end of each year)
+    if (newMonth === 1 && newYear > 0) {
+      const prevYear = newYear - 1;
+      const startTick = prevYear * 12;
+      const endTick = (prevYear + 1) * 12 - 1;
+
+      await generateYearlyChronicle(ctx, prevYear, startTick, endTick);
     }
 
     // =============================================
