@@ -18,11 +18,13 @@ const TERRITORY_CENTERS: Record<string, { lat: number; lng: number }> = {
 interface GlobeMapProps {
   selectedTerritoryId: Id<"territories"> | null;
   onSelectTerritory: (id: Id<"territories">) => void;
+  onFocusTerritory?: (id: Id<"territories">) => void;
 }
 
 export function GlobeMap({
   selectedTerritoryId,
   onSelectTerritory,
+  onFocusTerritory,
 }: GlobeMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const globeRef = useRef<any>(null);
@@ -293,6 +295,28 @@ export function GlobeMap({
 
   const dataLoading = !territories || !agents;
 
+  // Focus globe on a territory (used by legend clicks)
+  const focusOnTerritory = useCallback((territoryId: Id<"territories">) => {
+    if (!globeRef.current || !territories) return;
+
+    const territory = territories.find((t) => t._id === territoryId);
+    if (territory) {
+      const center = TERRITORY_CENTERS[territory.name];
+      if (center) {
+        globeRef.current.controls().autoRotate = false;
+        globeRef.current.pointOfView(
+          { lat: center.lat, lng: center.lng, altitude: 1.8 },
+          1000
+        );
+      }
+    }
+
+    // Call the focus handler (updates sidebar without opening modal)
+    if (onFocusTerritory) {
+      onFocusTerritory(territoryId);
+    }
+  }, [territories, onFocusTerritory]);
+
   return (
     <div className="h-full bg-[var(--void)] relative overflow-hidden">
       {/* Globe container - always rendered so ref exists */}
@@ -331,7 +355,7 @@ export function GlobeMap({
             return (
               <button
                 key={territory._id}
-                onClick={() => onSelectTerritory(territory._id)}
+                onClick={() => focusOnTerritory(territory._id)}
                 className={`flex items-center gap-2.5 w-full px-2 py-1.5 rounded-lg transition-all ${
                   isSelected
                     ? "bg-white/10"
