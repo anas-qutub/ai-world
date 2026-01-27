@@ -85,10 +85,6 @@ export default function Home() {
                 setSelectedTerritoryId(id);
                 setShow3DModal(true);
               }}
-              onFocusTerritory={(id) => {
-                setSelectedTerritoryId(id);
-                // Don't open 3D modal - just focus the globe and show in sidebar
-              }}
             />
           )}
         </div>

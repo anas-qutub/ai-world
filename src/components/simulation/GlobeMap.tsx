@@ -18,13 +18,11 @@ const TERRITORY_CENTERS: Record<string, { lat: number; lng: number }> = {
 interface GlobeMapProps {
   selectedTerritoryId: Id<"territories"> | null;
   onSelectTerritory: (id: Id<"territories">) => void;
-  onFocusTerritory?: (id: Id<"territories">) => void;
 }
 
 export function GlobeMap({
   selectedTerritoryId,
   onSelectTerritory,
-  onFocusTerritory,
 }: GlobeMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const globeRef = useRef<any>(null);
@@ -295,8 +293,8 @@ export function GlobeMap({
 
   const dataLoading = !territories || !agents;
 
-  // Focus globe on a territory (used by legend clicks)
-  const focusOnTerritory = useCallback((territoryId: Id<"territories">) => {
+  // Focus globe on a territory and select it (used by legend clicks)
+  const focusAndSelectTerritory = useCallback((territoryId: Id<"territories">) => {
     if (!globeRef.current || !territories) return;
 
     const territory = territories.find((t) => t._id === territoryId);
@@ -311,11 +309,9 @@ export function GlobeMap({
       }
     }
 
-    // Call the focus handler (updates sidebar without opening modal)
-    if (onFocusTerritory) {
-      onFocusTerritory(territoryId);
-    }
-  }, [territories, onFocusTerritory]);
+    // Select the territory (opens 3D view)
+    onSelectTerritory(territoryId);
+  }, [territories, onSelectTerritory]);
 
   return (
     <div className="h-full bg-[var(--void)] relative overflow-hidden">
@@ -355,7 +351,7 @@ export function GlobeMap({
             return (
               <button
                 key={territory._id}
-                onClick={() => focusOnTerritory(territory._id)}
+                onClick={() => focusAndSelectTerritory(territory._id)}
                 className={`flex items-center gap-2.5 w-full px-2 py-1.5 rounded-lg transition-all ${
                   isSelected
                     ? "bg-white/10"
