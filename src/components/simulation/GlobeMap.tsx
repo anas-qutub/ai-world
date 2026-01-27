@@ -319,13 +319,12 @@ export function GlobeMap({
 
       {/* Legend */}
       {territories && agents && (
-      <div className="absolute bottom-4 left-4 z-20 panel panel-glow rounded-lg p-4 max-h-72 overflow-y-auto min-w-[180px]">
-        <h4 className="text-[10px] font-display text-[var(--text-muted)] uppercase tracking-widest mb-3">
+      <div className="absolute bottom-4 left-4 z-20 bg-black/60 backdrop-blur-sm rounded-xl p-4 max-h-72 overflow-y-auto min-w-[160px]">
+        <h4 className="text-[10px] text-white/40 uppercase tracking-wider mb-3">
           Civilizations
         </h4>
-        <div className="space-y-1.5">
+        <div className="space-y-1">
           {territories.map((territory) => {
-            const agent = agents.find((a) => a.territory._id === territory._id)?.agent;
             const tribeName = (territory as any).tribeName;
             const isSelected = selectedTerritoryId === territory._id;
 
@@ -333,64 +332,25 @@ export function GlobeMap({
               <button
                 key={territory._id}
                 onClick={() => onSelectTerritory(territory._id)}
-                className={`flex items-center gap-3 w-full px-2.5 py-2 rounded-lg transition-all duration-200 group ${
+                className={`flex items-center gap-2.5 w-full px-2 py-1.5 rounded-lg transition-all ${
                   isSelected
                     ? "bg-white/10"
                     : "hover:bg-white/5"
                 }`}
-                style={{
-                  borderLeft: isSelected ? `3px solid ${territory.color}` : "3px solid transparent",
-                }}
               >
                 <div
-                  className="w-3 h-3 rounded-full flex-shrink-0 transition-all duration-200 group-hover:scale-110"
-                  style={{
-                    backgroundColor: territory.color,
-                    boxShadow: isSelected ? `0 0 8px ${territory.color}` : undefined,
-                  }}
+                  className="w-2.5 h-2.5 rounded-full flex-shrink-0"
+                  style={{ backgroundColor: territory.color }}
                 />
-                <span className="text-xs text-white truncate font-body">
+                <span className="text-xs text-white/80 truncate">
                   {tribeName || territory.name}
                 </span>
               </button>
             );
           })}
         </div>
-
-        {/* Relationship legend */}
-        {relationships && relationships.length > 0 && (
-          <>
-            <div className="h-px bg-[var(--border-dim)] my-3" />
-            <h4 className="text-[10px] font-display text-[var(--text-muted)] uppercase tracking-widest mb-2">
-              Relations
-            </h4>
-            <div className="space-y-1.5 text-[10px]">
-              <div className="flex items-center gap-2">
-                <div className="w-4 h-0.5 bg-[#a855f7] rounded" style={{ boxShadow: "0 0 4px #a855f7" }} />
-                <span className="text-[var(--text-secondary)]">Alliance</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="w-4 h-0.5 bg-[#22c55e] rounded" style={{ backgroundImage: "repeating-linear-gradient(90deg, #22c55e 0, #22c55e 3px, transparent 3px, transparent 5px)" }} />
-                <span className="text-[var(--text-secondary)]">Trade</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="w-4 h-0.5 bg-[#ef4444] rounded" style={{ boxShadow: "0 0 4px #ef4444" }} />
-                <span className="text-[var(--text-secondary)]">War</span>
-              </div>
-            </div>
-          </>
-        )}
       </div>
       )}
-
-      {/* Controls hint */}
-      <div className="absolute bottom-4 right-4 z-20 text-[10px] text-[var(--text-muted)] font-body">
-        <div className="panel rounded px-3 py-2 space-y-1">
-          <p><span className="text-[var(--cyber-cyan)]">Drag</span> to rotate</p>
-          <p><span className="text-[var(--cyber-cyan)]">Scroll</span> to zoom</p>
-          <p><span className="text-[var(--cyber-cyan)]">Click</span> territory to select</p>
-        </div>
-      </div>
     </div>
   );
 }
