@@ -92,6 +92,13 @@ export function GlobeMap({
       globe.controls().maxDistance = 500;
 
       globeRef.current = globe;
+
+      // Set initial size based on container
+      const { width, height } = container.getBoundingClientRect();
+      if (width > 0 && height > 0) {
+        globe.width(width).height(height);
+      }
+
       setIsLoading(false);
     }).catch((err) => {
       console.error("Failed to load globe:", err);
@@ -107,20 +114,36 @@ export function GlobeMap({
     };
   }, []);
 
-  // Handle resize
+  // Handle resize with ResizeObserver for more reliable sizing
   useEffect(() => {
+    if (!containerRef.current) return;
+
     const handleResize = () => {
       if (globeRef.current && containerRef.current) {
         const { width, height } = containerRef.current.getBoundingClientRect();
-        globeRef.current.width(width).height(height);
+        if (width > 0 && height > 0) {
+          globeRef.current.width(width).height(height);
+        }
       }
     };
 
+    // Use ResizeObserver for reliable container size tracking
+    const resizeObserver = new ResizeObserver(() => {
+      handleResize();
+    });
+    resizeObserver.observe(containerRef.current);
+
+    // Also listen to window resize as fallback
     window.addEventListener("resize", handleResize);
+
+    // Initial size
     handleResize();
 
-    return () => window.removeEventListener("resize", handleResize);
-  }, []);
+    return () => {
+      resizeObserver.disconnect();
+      window.removeEventListener("resize", handleResize);
+    };
+  }, [isLoading]); // Re-run when loading completes
 
   // Update points (territory markers)
   useEffect(() => {
