@@ -16,7 +16,7 @@ export function TimeDisplay() {
 
   return (
     <div className="flex items-center gap-2 text-sm">
-      <span className="text-[var(--text-muted)]">Cycle</span>
+      <span className="text-[var(--text-muted)]">Year</span>
       <span className="font-semibold text-white tabular-nums">{world.tick}</span>
     </div>
   );
