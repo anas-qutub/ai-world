@@ -150,11 +150,11 @@ async function applyTechnologyEffects(
   const territory = await ctx.db.get(territoryId);
   if (!territory) return;
 
-  // Increase base technology stat
+  // Increase base technology stat - no upper cap, resources grow naturally
   await ctx.db.patch(territoryId, {
-    technology: Math.min(100, territory.technology + 3),
-    knowledge: Math.min(100, territory.knowledge + 2),
-    influence: Math.min(100, territory.influence + 1),
+    technology: territory.technology + 3,
+    knowledge: territory.knowledge + 2,
+    influence: territory.influence + 1,
   });
 
   // Check for era transition
@@ -173,9 +173,9 @@ async function applyTechnologyEffects(
       createdAt: Date.now(),
     });
 
-    // Boost happiness for new era
+    // Boost happiness for new era - no upper cap
     await ctx.db.patch(territoryId, {
-      happiness: Math.min(100, territory.happiness + 10),
+      happiness: territory.happiness + 10,
     });
   }
 
@@ -277,9 +277,9 @@ export async function shareTechnology(
     });
   }
 
-  // Improve relationship from sharing
+  // Improve relationship from sharing - trust grows naturally
   await ctx.db.patch(relationship._id, {
-    trust: Math.min(100, relationship.trust + 10),
+    trust: relationship.trust + 10,
   });
 
   return { success: true };

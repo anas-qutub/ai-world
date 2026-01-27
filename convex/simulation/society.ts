@@ -144,8 +144,8 @@ export async function processSocialClasses(
       if (socialClass.className === "noble") happinessChange -= 2; // Less power
     }
 
-    // Update happiness
-    const newHappiness = clamp(socialClass.happiness + happinessChange, 0, 100);
+    // Update happiness - no upper cap, minimum 0
+    const newHappiness = Math.max(0, socialClass.happiness + happinessChange);
     await ctx.db.patch(socialClass._id, {
       happiness: newHappiness,
     });
@@ -200,7 +200,7 @@ export async function classReform(
         } else if (socialClass.className === "farmer" || socialClass.className === "craftsman") {
           await ctx.db.patch(socialClass._id, {
             wealthShare: Math.min(30, socialClass.wealthShare + 3),
-            happiness: Math.min(100, socialClass.happiness + 10),
+            happiness: socialClass.happiness + 10,
           });
           effects.push("Workers gain wealth share");
         }
@@ -211,7 +211,7 @@ export async function classReform(
         if (socialClass.className === "farmer" || socialClass.className === "craftsman") {
           await ctx.db.patch(socialClass._id, {
             politicalPower: Math.min(30, socialClass.politicalPower + 5),
-            happiness: Math.min(100, socialClass.happiness + 8),
+            happiness: socialClass.happiness + 8,
           });
           effects.push("Workers gain political power");
         } else if (socialClass.className === "noble") {
@@ -226,7 +226,7 @@ export async function classReform(
         if (socialClass.className === "noble") {
           await ctx.db.patch(socialClass._id, {
             politicalPower: Math.min(60, socialClass.politicalPower + 10),
-            happiness: Math.min(100, socialClass.happiness + 5),
+            happiness: socialClass.happiness + 5,
           });
           effects.push("Nobles gain power");
         } else {
@@ -325,9 +325,9 @@ export async function processFactions(
       rebellionChange += 3;
     }
 
-    // Update faction
-    const newHappiness = clamp(faction.happiness + happinessChange, 0, 100);
-    const newRebellionRisk = clamp(faction.rebellionRisk + rebellionChange, 0, 100);
+    // Update faction - happiness has no cap, rebellionRisk capped at 100 (probability)
+    const newHappiness = Math.max(0, faction.happiness + happinessChange);
+    const newRebellionRisk = Math.max(0, Math.min(100, faction.rebellionRisk + rebellionChange));
 
     await ctx.db.patch(faction._id, {
       happiness: newHappiness,
@@ -383,7 +383,7 @@ export async function appeaseFaction(
     case "gold":
       // Bribery - quick but temporary
       await ctx.db.patch(factionId, {
-        happiness: Math.min(100, faction.happiness + 20),
+        happiness: faction.happiness + 20,
         rebellionRisk: Math.max(0, faction.rebellionRisk - 15),
       });
       effects.push("Faction temporarily appeased with gold");
@@ -392,9 +392,9 @@ export async function appeaseFaction(
     case "concessions":
       // Give them what they want - more lasting
       await ctx.db.patch(factionId, {
-        happiness: Math.min(100, faction.happiness + 30),
+        happiness: faction.happiness + 30,
         rebellionRisk: Math.max(0, faction.rebellionRisk - 25),
-        power: Math.min(50, faction.power + 5),
+        power: faction.power + 5,
       });
       effects.push("Faction granted concessions, their power grows");
       break;
@@ -404,7 +404,7 @@ export async function appeaseFaction(
       const trustRoll = Math.random();
       if (trustRoll > 0.3) {
         await ctx.db.patch(factionId, {
-          happiness: Math.min(100, faction.happiness + 10),
+          happiness: faction.happiness + 10,
           rebellionRisk: Math.max(0, faction.rebellionRisk - 5),
         });
         effects.push("Faction accepts promises... for now");
@@ -452,7 +452,7 @@ export async function suppressFaction(
   } else {
     // Failed suppression - faction grows stronger
     await ctx.db.patch(factionId, {
-      power: Math.min(100, faction.power + 10),
+      power: faction.power + 10,
       rebellionRisk: Math.min(100, faction.rebellionRisk + 20),
     });
 

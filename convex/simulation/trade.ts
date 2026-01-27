@@ -228,9 +228,9 @@ export async function processCaravans(
         // Calculate total value of delivered goods
         const totalValue = caravan.goods.reduce((sum, g) => sum + g.quantity * g.purchasePrice, 0);
 
-        // Add wealth to destination from trade
+        // Add wealth to destination from trade - no upper cap
         await ctx.db.patch(caravan.destinationId, {
-          wealth: Math.min(100, destination.wealth + totalValue * 0.1),
+          wealth: destination.wealth + totalValue * 0.1,
         });
 
         // Update trade route statistics
@@ -314,9 +314,9 @@ export async function raidCaravans(
         lootValue += goodsValue;
         raided++;
 
-        // Transfer some wealth to raider
+        // Transfer some wealth to raider - no upper cap
         await ctx.db.patch(raiderTerritoryId, {
-          wealth: Math.min(100, (raider?.wealth || 0) + goodsValue * 0.5),
+          wealth: (raider?.wealth || 0) + goodsValue * 0.5,
         });
 
         await ctx.db.patch(caravan._id, { status: "raided" });
