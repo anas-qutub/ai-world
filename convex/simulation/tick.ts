@@ -15,7 +15,7 @@ import { processDemographics, processImmigration } from "./demographics";
 import { processSocialClasses, processFactions, processRebellions } from "./society";
 import { processDiseases, checkDiseaseRisk, createDiseaseOutbreak } from "./disease";
 import { processArmyUpkeep } from "./military";
-import { checkForBattles, updateWarStatus } from "./combat";
+import { checkForBattles, updateWarStatus, processRetreatingArmies } from "./combat";
 import { processSieges } from "./siege";
 import { getCurrentEra, TECHNOLOGY_ERAS } from "./technology";
 
@@ -190,6 +190,9 @@ export const processTick = internalMutation({
 
     // Check for battles where opposing armies meet
     const battles = await checkForBattles(ctx, newTick);
+
+    // Process retreating armies (return them to home territory)
+    await processRetreatingArmies(ctx, newTick);
 
     // Log battles
     for (const battle of battles) {

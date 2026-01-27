@@ -460,7 +460,11 @@ export async function liftSiege(
     return { success: false };
   }
 
-  await ctx.db.patch(siegeId, { status: "lifted" });
+  // Reset siege progress when lifted so it doesn't carry over
+  await ctx.db.patch(siegeId, {
+    status: "lifted",
+    progress: 0, // Reset progress
+  });
   await ctx.db.patch(siege.attackerArmyId, { status: "marching" });
 
   return { success: true };

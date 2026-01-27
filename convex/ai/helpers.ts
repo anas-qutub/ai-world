@@ -682,7 +682,7 @@ async function applyActionEffects(
       .collect();
 
     if (factions.length > 0) {
-      const mostRebellious = factions.reduce((max, f) => f.rebellionRisk > max.rebellionRisk ? f : max);
+      const mostRebellious = factions.reduce((max: typeof factions[0], f: typeof factions[0]) => f.rebellionRisk > max.rebellionRisk ? f : max);
       const result = await appeaseFaction(ctx, mostRebellious._id, "gold");
       effects.appeaseResult = result;
       await ctx.db.patch(territory._id, {
@@ -698,7 +698,7 @@ async function applyActionEffects(
       .collect();
 
     if (factions.length > 0) {
-      const target = factions.reduce((max, f) => f.rebellionRisk > max.rebellionRisk ? f : max);
+      const target = factions.reduce((max: typeof factions[0], f: typeof factions[0]) => f.rebellionRisk > max.rebellionRisk ? f : max);
       const result = await suppressFaction(ctx, target._id, territory.military);
       effects.suppressResult = result;
     }
@@ -796,10 +796,10 @@ async function applyActionEffects(
       .filter((q: any) => q.eq(q.field("researched"), true))
       .collect();
 
-    const researchedIds = new Set(researchedTechs.map(t => t.techId));
-    const available = allTechs.filter(t => {
+    const researchedIds = new Set(researchedTechs.map((t: typeof researchedTechs[0]) => t.techId));
+    const available = allTechs.filter((t: typeof allTechs[0]) => {
       if (researchedIds.has(t.techId)) return false;
-      return t.prerequisites.every(p => researchedIds.has(p));
+      return t.prerequisites.every((p: string) => researchedIds.has(p));
     });
 
     if (available.length > 0) {
@@ -1037,14 +1037,14 @@ async function applyActionEffects(
           break;
 
         case "raid_caravan":
-          const raidResult = await raidCaravans(
+          const caravanRaidResult = await raidCaravans(
             ctx,
             territory._id,
             targetTerritory._id,
             world?.tick || 0
           );
-          effects.caravanRaidResult = raidResult;
-          if (raidResult.success) {
+          effects.caravanRaidResult = caravanRaidResult;
+          if (caravanRaidResult.success) {
             relationshipChanges.trust = Math.max(-100, relationship.trust - 20);
             if (relationship.status !== "at_war") {
               relationshipChanges.status = "hostile";

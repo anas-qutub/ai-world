@@ -152,9 +152,14 @@ export async function processDiseases(
       if (!territory) continue;
 
       // Calculate deaths based on mortality rate and population
-      const infectedRate = 0.3; // Assume 30% of population is infected at peak
+      // At peak, assume 10% of population is infected per month (tick)
+      // Death rate applies to infected population over the disease duration
+      const infectedRate = 0.10; // 10% of population infected at any time
       const infected = Math.floor(territory.population * infectedRate);
-      const deaths = Math.floor(infected * disease.mortalityRate * 0.1); // Per tick deaths
+      // Deaths per tick = infected * mortalityRate / duration (spread deaths over disease lifetime)
+      const diseaseDef = DISEASE_TYPES[disease.type as DiseaseType];
+      const ticksRemaining = Math.max(1, (diseaseDef?.duration || 12) - (tick - disease.startedAtTick));
+      const deaths = Math.floor(infected * disease.mortalityRate / Math.min(ticksRemaining, 6)); // Spread deaths over ~6 ticks
 
       totalDeaths += deaths;
 

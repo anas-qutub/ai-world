@@ -118,10 +118,10 @@ export async function createArmy(
     return { success: false, error: "Not enough population to raise army" };
   }
 
-  // Deduct costs
+  // Deduct costs (ensure population never goes below 1)
   await ctx.db.patch(territoryId, {
-    wealth: territory.wealth - totalCost,
-    population: territory.population - totalPopulation,
+    wealth: Math.max(0, territory.wealth - totalCost),
+    population: Math.max(1, territory.population - totalPopulation),
   });
 
   // Create the army
@@ -215,10 +215,10 @@ export async function recruitSoldiers(
     return { success: false, recruited: 0, error: "Not enough population" };
   }
 
-  // Deduct costs
+  // Deduct costs (ensure population never goes below 1)
   await ctx.db.patch(army.territoryId, {
-    wealth: territory.wealth - totalCost,
-    population: territory.population - totalPop,
+    wealth: Math.max(0, territory.wealth - totalCost),
+    population: Math.max(1, territory.population - totalPop),
   });
 
   // Add to army
@@ -262,6 +262,12 @@ export async function moveArmy(
     return { success: false, error: "Army not found" };
   }
 
+  // Validate destination exists
+  const destination = await ctx.db.get(destinationId);
+  if (!destination) {
+    return { success: false, error: "Destination territory not found" };
+  }
+
   if (army.status === "battling" || army.status === "besieging") {
     return { success: false, error: "Army is engaged and cannot move" };
   }
@@ -270,11 +276,15 @@ export async function moveArmy(
     return { success: false, error: "Army needs supplies to march" };
   }
 
+  // Calculate supply cost based on distance (use trade route distance if available)
+  // Default to 1 supply per move, could be enhanced with distance calculation
+  const supplyCost = 1;
+
   // Consume supplies while marching
   await ctx.db.patch(armyId, {
     locationId: destinationId,
     status: "marching",
-    supplies: army.supplies - 1,
+    supplies: Math.max(0, army.supplies - supplyCost),
   });
 
   return { success: true };

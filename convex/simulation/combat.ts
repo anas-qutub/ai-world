@@ -116,10 +116,17 @@ export async function resolveBattle(
   await gainExperience(ctx, defenderArmyId, 5);
 
   // Update army statuses
+  // Winner stays to garrison (or continues marching), loser retreats
   if (winner === "attacker") {
+    await ctx.db.patch(attackerArmyId, { status: "garrison" });
     await ctx.db.patch(defenderArmyId, { status: "retreating" });
   } else if (winner === "defender") {
+    await ctx.db.patch(defenderArmyId, { status: "garrison" });
     await ctx.db.patch(attackerArmyId, { status: "retreating" });
+  } else {
+    // Draw - both armies disengage to garrison
+    await ctx.db.patch(attackerArmyId, { status: "garrison" });
+    await ctx.db.patch(defenderArmyId, { status: "garrison" });
   }
 
   // Record battle
@@ -385,6 +392,27 @@ export async function updateWarStatus(
       trust: -75,
     });
   }
+}
+
+// Process retreating armies - they return to their home territory
+export async function processRetreatingArmies(
+  ctx: MutationCtx,
+  tick: number
+): Promise<number> {
+  const retreatingArmies = await ctx.db
+    .query("armies")
+    .withIndex("by_status", (q) => q.eq("status", "retreating"))
+    .collect();
+
+  for (const army of retreatingArmies) {
+    // Retreating army returns to home territory
+    await ctx.db.patch(army._id, {
+      locationId: army.territoryId,
+      status: "garrison",
+    });
+  }
+
+  return retreatingArmies.length;
 }
 
 // Check if armies should engage
