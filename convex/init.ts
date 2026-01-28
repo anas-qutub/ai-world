@@ -2,6 +2,7 @@ import { mutation } from "./_generated/server";
 import { TECH_TREE, getStartingTechnologies } from "./data/techTree";
 import { createCharacterInternal } from "./simulation/characters";
 import { SKILL_TYPES } from "./simulation/collectiveKnowledge";
+import { VALID_TERRITORIES } from "./schema";
 
 export const initializeWorld = mutation({
   args: {},
@@ -23,7 +24,8 @@ export const initializeWorld = mutation({
 
     // Define territories with initial resources - starting from scratch!
     // Each continent begins with just 20-30 people building civilization from nothing
-    const territories = [
+    // IMPORTANT: Only LAND territories allowed - no ocean territories!
+    const territories: Array<{ name: typeof VALID_TERRITORIES[number]; [key: string]: any }> = [
       {
         name: "North America",
         color: "#ef4444", // Red

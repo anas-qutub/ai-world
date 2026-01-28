@@ -5,6 +5,16 @@ import { useQuery } from "convex/react";
 import { api } from "../../../convex/_generated/api";
 import { Id } from "../../../convex/_generated/dataModel";
 
+// Valid territories - LAND MASSES ONLY (no ocean)
+const VALID_TERRITORIES = [
+  "North America",
+  "South America",
+  "Europe",
+  "Africa",
+  "Asia",
+  "Australia",
+] as const;
+
 // Territory center coordinates for camera focus
 const TERRITORY_CENTERS: Record<string, { lat: number; lng: number }> = {
   "North America": { lat: 40, lng: -100 },
@@ -178,8 +188,10 @@ export function GlobeMap({
   useEffect(() => {
     if (!globeRef.current || !territories) return;
 
-    // Create GeoJSON features for each territory
-    const polygonData = territories.map((territory) => {
+    // Create GeoJSON features for each territory (LAND ONLY - no ocean)
+    const polygonData = territories
+      .filter((territory) => VALID_TERRITORIES.includes(territory.name as any))
+      .map((territory) => {
       const coords = CONTINENT_POLYGONS[territory.name];
       if (!coords) return null;
 

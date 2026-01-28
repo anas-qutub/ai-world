@@ -1,6 +1,18 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
+// Valid territories - LAND MASSES ONLY (no ocean territories allowed)
+export const VALID_TERRITORIES = [
+  "North America",
+  "South America",
+  "Europe",
+  "Africa",
+  "Asia",
+  "Australia",
+] as const;
+
+export type ValidTerritory = typeof VALID_TERRITORIES[number];
+
 export default defineSchema({
   // Global simulation state
   world: defineTable({
