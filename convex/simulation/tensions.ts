@@ -1,6 +1,7 @@
 import { internalMutation, query, MutationCtx } from "../_generated/server";
 import { v } from "convex/values";
 import { Doc, Id } from "../_generated/dataModel";
+import { calculateRulerRebellionModifier, calculateCoupSuccessModifier } from "./rulerLegitimacy";
 
 // =============================================
 // NATURAL CONSTANTS
@@ -324,6 +325,16 @@ export async function calculateTensions(
       coupLikelihood += (ruler.age - 50) * 0.5;
     }
 
+    // Ruler legitimacy and trust affect coup likelihood
+    // Low legitimacy and trust make coups easier to justify and succeed
+    if (ruler) {
+      const coupModifier = calculateCoupSuccessModifier(
+        ruler.legitimacy ?? 50,
+        ruler.popularTrust ?? 50
+      );
+      coupLikelihood += coupModifier;
+    }
+
     coupLikelihood = Math.round(Math.min(100, coupLikelihood));
 
     // =============================================
@@ -468,6 +479,17 @@ export async function calculateTensions(
     // Low happiness contributes independently
     if (territory.happiness < 30) {
       rebellionLikelihood += 15;
+    }
+
+    // Ruler legitimacy and trust affect rebellion likelihood
+    // Low legitimacy makes people question ruler's right to rule
+    // Low trust makes people willing to act against the ruler
+    if (ruler) {
+      const rebellionModifier = calculateRulerRebellionModifier(
+        ruler.legitimacy ?? 50,
+        ruler.popularTrust ?? 50
+      );
+      rebellionLikelihood += rebellionModifier;
     }
 
     rebellionLikelihood = Math.round(Math.min(100, rebellionLikelihood));

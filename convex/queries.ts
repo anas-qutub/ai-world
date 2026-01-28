@@ -1,6 +1,8 @@
 import { query } from "./_generated/server";
 import { v } from "convex/values";
 import { Doc, Id } from "./_generated/dataModel";
+import { getPowerRankings, getCompetitionStats, POWER_SCORE_WEIGHTS } from "./simulation/scoring";
+import { getVictoryProgress, VICTORY_THRESHOLDS } from "./simulation/victory";
 
 // Get current world state
 export const getWorld = query({
@@ -299,5 +301,159 @@ export const getTerritoryStats = query({
       byTerritory,
       currentTick: world?.tick || 0,
     };
+  },
+});
+
+// =============================================
+// COMPETITION QUERIES - POWER RANKINGS & VICTORY
+// =============================================
+
+// Get power rankings for all territories
+export const getPowerRankingsQuery = query({
+  args: {},
+  handler: async (ctx) => {
+    const territories = await ctx.db.query("territories").collect();
+    const relationships = await ctx.db.query("relationships").collect();
+
+    const rankings = await getPowerRankings(ctx, territories, relationships);
+
+    return {
+      rankings,
+      weights: POWER_SCORE_WEIGHTS,
+    };
+  },
+});
+
+// Get victory progress for all territories
+export const getVictoryProgressQuery = query({
+  args: {},
+  handler: async (ctx) => {
+    const territories = await ctx.db.query("territories").collect();
+    const progress = getVictoryProgress(territories);
+
+    return {
+      progress,
+      thresholds: VICTORY_THRESHOLDS,
+    };
+  },
+});
+
+// Get current match status
+export const getCurrentMatch = query({
+  args: {},
+  handler: async (ctx) => {
+    // Try to get a running match
+    let match = await ctx.db
+      .query("matches")
+      .withIndex("by_status", (q) => q.eq("status", "running"))
+      .first();
+
+    // If no running match, get the most recent ended match
+    if (!match) {
+      match = await ctx.db
+        .query("matches")
+        .withIndex("by_status", (q) => q.eq("status", "ended"))
+        .order("desc")
+        .first();
+    }
+
+    if (!match) {
+      return null;
+    }
+
+    // Get territories for context
+    const territories = await ctx.db.query("territories").collect();
+    const activeTerritories = territories.filter(t => !t.isEliminated);
+    const eliminatedTerritories = territories.filter(t => t.isEliminated);
+
+    // Calculate match duration
+    const world = await ctx.db.query("world").first();
+    const currentTick = world?.tick || 0;
+    const matchDuration = match.endTick
+      ? match.endTick - match.startTick
+      : currentTick - match.startTick;
+
+    return {
+      ...match,
+      matchDuration,
+      activeCount: activeTerritories.length,
+      eliminatedCount: eliminatedTerritories.length,
+      eliminatedTerritories: eliminatedTerritories.map(t => ({
+        id: t._id,
+        name: t.tribeName || t.name,
+        eliminatedAtTick: t.eliminatedAtTick,
+      })),
+    };
+  },
+});
+
+// Get competition stats summary
+export const getCompetitionStatsQuery = query({
+  args: {},
+  handler: async (ctx) => {
+    return await getCompetitionStats(ctx);
+  },
+});
+
+// Get power score history for charts
+export const getPowerScoreHistoryQuery = query({
+  args: {
+    territoryId: v.optional(v.id("territories")),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const limit = args.limit || 50;
+
+    if (args.territoryId) {
+      // Get history for specific territory
+      return await ctx.db
+        .query("powerScoreHistory")
+        .withIndex("by_territory", (q) => q.eq("territoryId", args.territoryId!))
+        .order("desc")
+        .take(limit);
+    }
+
+    // Get recent history for all territories (grouped by tick)
+    const history = await ctx.db
+      .query("powerScoreHistory")
+      .withIndex("by_tick")
+      .order("desc")
+      .take(limit * 6); // 6 territories max
+
+    // Group by tick for easier charting
+    const byTick = new Map<number, typeof history>();
+    for (const record of history) {
+      if (!byTick.has(record.tick)) {
+        byTick.set(record.tick, []);
+      }
+      byTick.get(record.tick)!.push(record);
+    }
+
+    return {
+      history: Array.from(byTick.entries()).map(([tick, records]) => ({
+        tick,
+        scores: records,
+      })),
+    };
+  },
+});
+
+// Get agents with their personality configurations
+export const getAgentsWithPersonality = query({
+  args: {},
+  handler: async (ctx) => {
+    const agents = await ctx.db.query("agents").collect();
+    const territories = await ctx.db.query("territories").collect();
+
+    const territoryMap = new Map(territories.map(t => [t._id.toString(), t]));
+
+    return agents.map(agent => {
+      const territory = territoryMap.get(agent.territoryId.toString());
+      return {
+        ...agent,
+        territoryName: territory?.tribeName || territory?.name || "Unknown",
+        isEliminated: territory?.isEliminated || false,
+      };
+    });
   },
 });

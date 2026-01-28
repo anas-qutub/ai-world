@@ -3,8 +3,10 @@
 import { internalAction } from "../_generated/server";
 import { internal } from "../_generated/api";
 import { v } from "convex/values";
-import { buildDecisionPrompt, AVAILABLE_ACTIONS, EngagementContext, CharacterContext, TensionContext, RivalryContext, ProsperityContext } from "./prompts";
-import { callAnthropic } from "./providers/anthropic";
+import { buildDecisionPrompt, AVAILABLE_ACTIONS, EngagementContext, CharacterContext, TensionContext, RivalryContext, ProsperityContext, PersonalityParams, OrganicGrowthContext, MemoryContext, BondsContext, EmergentGoalContext } from "./prompts";
+import { callAnthropic, AIDecisionResponse } from "./providers/anthropic";
+import { callOpenAI, isOpenAIAvailable } from "./providers/openai";
+import { callXAI, isXAIAvailable } from "./providers/xai";
 import { Doc, Id } from "../_generated/dataModel";
 
 export const makeDecision = internalAction({
@@ -172,7 +174,145 @@ export const makeDecision = internalAction({
       };
     }
 
-    // Build the prompt
+    // =============================================
+    // ORGANIC AI GROWTH - Memories, Bonds, Goals
+    // =============================================
+
+    let organicGrowthContext: OrganicGrowthContext | undefined;
+
+    // Fetch organic growth data in parallel
+    const [agentMemories, agentBonds, agentGoals] = await Promise.all([
+      ctx.runQuery(internal.ai.helpers.getAgentMemories, { agentId: args.agentId, limit: 10 }),
+      ctx.runQuery(internal.ai.helpers.getAgentBonds, { territoryId: agent.territoryId }),
+      ctx.runQuery(internal.ai.helpers.getAgentGoals, { agentId: args.agentId }),
+    ]);
+
+    // Build memory context
+    let memoryContext: MemoryContext | undefined;
+    if (agentMemories && agentMemories.length > 0) {
+      const formattedMemories: string[] = [];
+      const memoryDetails: MemoryContext["memories"] = [];
+
+      for (const memory of agentMemories) {
+        const ticksAgo = world.tick - memory.tick;
+        const yearsAgo = Math.floor(ticksAgo / 12);
+        const timeStr = yearsAgo > 0 ? `${yearsAgo} year${yearsAgo > 1 ? 's' : ''} ago` : `${ticksAgo} month${ticksAgo > 1 ? 's' : ''} ago`;
+
+        // Get target territory name if applicable
+        let targetName: string | undefined;
+        if (memory.targetTerritoryId) {
+          const targetTerritory = await ctx.runQuery(internal.ai.helpers.getTerritory, {
+            territoryId: memory.targetTerritoryId,
+          });
+          targetName = targetTerritory?.name;
+        }
+
+        // Determine emotional intensity
+        const intensity = Math.abs(memory.emotionalWeight);
+        const isPositive = memory.emotionalWeight > 0;
+        let emotionalDesc: string;
+        if (intensity >= 80) emotionalDesc = isPositive ? "CHERISHED" : "TRAUMATIC";
+        else if (intensity >= 60) emotionalDesc = isPositive ? "FOND" : "PAINFUL";
+        else if (intensity >= 40) emotionalDesc = isPositive ? "Good" : "Bad";
+        else emotionalDesc = "Fading";
+
+        // Vividness based on salience
+        const vividness = memory.salience >= 80 ? "VIVID" : memory.salience >= 50 ? "Clear" : "Fading";
+
+        const typeLabel = memory.memoryType.toUpperCase().replace('_', ' ');
+        formattedMemories.push(
+          `- [${timeStr}] ${typeLabel}: "${memory.description}" (${emotionalDesc}, ${vividness})`
+        );
+
+        memoryDetails.push({
+          type: memory.memoryType,
+          description: memory.description,
+          emotionalWeight: memory.emotionalWeight,
+          salience: memory.salience,
+          ticksAgo,
+          targetTerritoryName: targetName,
+        });
+      }
+
+      memoryContext = {
+        memories: memoryDetails,
+        formattedMemories: formattedMemories.join("\n"),
+      };
+    }
+
+    // Build bonds context
+    let bondsContext: BondsContext | undefined;
+    if (agentBonds && agentBonds.length > 0) {
+      const grudges: string[] = [];
+      const gratitude: string[] = [];
+
+      const positiveBondTypes = ["savior_debt", "gift_gratitude", "alliance_bond", "trade_bond", "honor_respect"];
+
+      for (const bond of agentBonds) {
+        if (bond.status === "forgotten") continue;
+
+        // Get target territory name
+        const targetTerritory = await ctx.runQuery(internal.ai.helpers.getTerritory, {
+          territoryId: bond.toTerritoryId,
+        });
+        const targetName = targetTerritory?.name || "Unknown";
+
+        const ticksAgo = world.tick - bond.originTick;
+        const yearsAgo = Math.floor(ticksAgo / 12);
+        const ageStr = yearsAgo > 0 ? `${yearsAgo} year${yearsAgo > 1 ? 's' : ''}` : "recent";
+
+        // Intensity description
+        let intensityDesc: string;
+        if (bond.intensity >= 80) intensityDesc = "EXTREME";
+        else if (bond.intensity >= 60) intensityDesc = "STRONG";
+        else if (bond.intensity >= 40) intensityDesc = "MODERATE";
+        else if (bond.intensity >= 20) intensityDesc = "WEAK";
+        else intensityDesc = "FADING";
+
+        const hereditaryNote = bond.isHereditary && bond.generationsPassed > 0
+          ? ` [HEREDITARY - ${bond.generationsPassed} gen]`
+          : bond.isHereditary ? " [HEREDITARY]" : "";
+
+        const bondTypeName = bond.bondType.replace(/_/g, " ").toUpperCase();
+        const line = `- ${targetName}: ${bondTypeName} (${intensityDesc}) - ${bond.originDescription} (${ageStr})${hereditaryNote}`;
+
+        if (positiveBondTypes.includes(bond.bondType)) {
+          gratitude.push(line);
+        } else {
+          grudges.push(line);
+        }
+      }
+
+      bondsContext = {
+        grudges: grudges.length > 0 ? grudges.join("\n") : "No active grudges.",
+        gratitude: gratitude.length > 0 ? gratitude.join("\n") : "No debts of gratitude.",
+      };
+    }
+
+    // Build goals context
+    let goalsContext: EmergentGoalContext[] | undefined;
+    if (agentGoals && agentGoals.length > 0) {
+      goalsContext = agentGoals
+        .filter((g: any) => g.status === "active")
+        .map((g: any) => ({
+          goalType: g.goalType,
+          targetDescription: g.targetDescription,
+          originReason: g.originReason,
+          progress: g.progress,
+          priority: g.priority,
+        }));
+    }
+
+    // Combine into organic growth context
+    if (memoryContext || bondsContext || (goalsContext && goalsContext.length > 0)) {
+      organicGrowthContext = {
+        memories: memoryContext,
+        bonds: bondsContext,
+        goals: goalsContext,
+      };
+    }
+
+    // Build the prompt with personality parameters and organic growth context
     const userPrompt = buildDecisionPrompt(
       territory,
       relationships.map((r: {
@@ -199,32 +339,73 @@ export const makeDecision = internalAction({
         tick: world.tick,
       },
       otherTerritories,
-      engagementContext
+      engagementContext,
+      agent.personalityParams as PersonalityParams | undefined,
+      organicGrowthContext
     );
 
-    // Call the AI provider
-    let decision;
+    // Call the AI provider based on agent configuration
+    let decision: AIDecisionResponse;
     try {
-      if (agent.provider === "anthropic") {
-        decision = await callAnthropic(
-          agent.model,
-          agent.systemPrompt,
-          userPrompt
-        );
-      } else {
-        // For now, default to do_nothing for unimplemented providers
-        decision = {
-          action: "do_nothing",
-          target: null,
-          reasoning: `Provider ${agent.provider} not yet implemented`,
-        };
+      switch (agent.provider) {
+        case "anthropic":
+          decision = await callAnthropic(
+            agent.model,
+            agent.systemPrompt,
+            userPrompt
+          );
+          break;
+
+        case "openai":
+          if (isOpenAIAvailable()) {
+            decision = await callOpenAI(
+              agent.model,
+              agent.systemPrompt,
+              userPrompt
+            );
+          } else {
+            // Fallback to Anthropic if OpenAI not configured
+            console.log(`OpenAI not configured for ${territory.name}, falling back to Anthropic`);
+            decision = await callAnthropic(
+              "claude-sonnet-4-20250514",
+              agent.systemPrompt,
+              userPrompt
+            );
+          }
+          break;
+
+        case "xai":
+          if (isXAIAvailable()) {
+            decision = await callXAI(
+              agent.model,
+              agent.systemPrompt,
+              userPrompt
+            );
+          } else {
+            // Fallback to Anthropic if xAI not configured
+            console.log(`xAI not configured for ${territory.name}, falling back to Anthropic`);
+            decision = await callAnthropic(
+              "claude-sonnet-4-20250514",
+              agent.systemPrompt,
+              userPrompt
+            );
+          }
+          break;
+
+        default:
+          // Unknown provider, fall back to Anthropic
+          decision = await callAnthropic(
+            "claude-sonnet-4-20250514",
+            agent.systemPrompt,
+            userPrompt
+          );
       }
     } catch (error) {
       console.error("AI decision error:", error);
       decision = {
-        action: "do_nothing",
+        action: "rest",
         target: null,
-        reasoning: "Error generating decision. Maintaining status quo.",
+        reasoning: "Error generating decision. The tribe rests while the elders deliberate.",
       };
     }
 

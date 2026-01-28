@@ -1,6 +1,7 @@
 import { mutation } from "./_generated/server";
 import { TECH_TREE, getStartingTechnologies } from "./data/techTree";
 import { createCharacterInternal } from "./simulation/characters";
+import { SKILL_TYPES } from "./simulation/collectiveKnowledge";
 
 export const initializeWorld = mutation({
   args: {},
@@ -54,6 +55,10 @@ export const initializeWorld = mutation({
           "obsidian",         // Volcanic glass for sharp tools
           "beaver pelts",     // Valuable fur
         ],
+        // Survival resources - tribes start with basic shelter and some wood
+        woodStockpile: 30,     // Some gathered firewood
+        shelterCapacity: 15,   // Basic caves/lean-tos shelter ~60% of population
+        preservedFood: 0,      // No preserved food yet
       },
       {
         name: "Europe",
@@ -87,6 +92,10 @@ export const initializeWorld = mutation({
           "marble",           // Mediterranean quarries (Greece, Italy)
           "grapes",           // Wine cultivation
         ],
+        // Survival resources
+        woodStockpile: 35,     // Good forests
+        shelterCapacity: 18,   // Basic shelter for ~65%
+        preservedFood: 0,
       },
       {
         name: "Africa",
@@ -120,6 +129,10 @@ export const initializeWorld = mutation({
           "tropical hardwoods", // Ebony, mahogany for crafting
           "coffee beans",     // Ethiopian highlands origin
         ],
+        // Survival resources - warm climate, less wood needed
+        woodStockpile: 20,     // Less focus on heating
+        shelterCapacity: 12,   // Simpler shelters in warm climate
+        preservedFood: 0,
       },
       {
         name: "Asia",
@@ -154,6 +167,10 @@ export const initializeWorld = mutation({
           "elephants",        // Work animals and warfare
           "incense",          // Frankincense, myrrh (Arabia)
         ],
+        // Survival resources - bamboo as alternative building material
+        woodStockpile: 40,     // Abundant bamboo and timber
+        shelterCapacity: 20,   // Good shelter traditions
+        preservedFood: 5,      // Rice storage traditions
       },
       {
         name: "South America",
@@ -188,6 +205,10 @@ export const initializeWorld = mutation({
           "tropical fruits",  // Abundant rainforest produce
           "emeralds",         // Colombian deposits
         ],
+        // Survival resources - tropical climate, abundant resources
+        woodStockpile: 25,     // Rainforest wood
+        shelterCapacity: 12,   // Basic tropical shelters
+        preservedFood: 0,
       },
       {
         name: "Australia",
@@ -222,6 +243,10 @@ export const initializeWorld = mutation({
           "gold",             // Western Australian goldfields
           "sandalwood",       // Aromatic timber
         ],
+        // Survival resources - warm climate, less winter concern
+        woodStockpile: 20,     // Eucalyptus wood
+        shelterCapacity: 15,   // Moderate shelter
+        preservedFood: 0,
       },
     ];
 
@@ -233,179 +258,142 @@ export const initializeWorld = mutation({
       territoryIds[territory.name] = id;
     }
 
-    // Define AI agents - each building a unique civilization from scratch
+    // =============================================
+    // AI ARENA - EMERGENT CIVILIZATIONS
+    // =============================================
+    // Each territory starts with:
+    // - Different AI model (Claude, GPT-4, Grok) for variety
+    // - NEUTRAL personality parameters (all ~50)
+    // - NO predetermined archetype - they develop their own identity
+    //
+    // Personalities EVOLVE based on:
+    // - Actions they take (raid = +aggression, trade = +cooperation)
+    // - Outcomes they experience (lose war = +defensiveness, famine = +frugality)
+    // - Choices they make over time
+    //
+    // This creates organic, emergent AI civilizations!
+
+    // Generate neutral starting personality (slight random variation ±10)
+    const neutralPersonality = () => ({
+      // Core Strategic - all start balanced
+      aggression: 45 + Math.floor(Math.random() * 10),
+      riskTolerance: 45 + Math.floor(Math.random() * 10),
+      cooperation: 45 + Math.floor(Math.random() * 10),
+      militarism: 45 + Math.floor(Math.random() * 10),
+      expansionism: 45 + Math.floor(Math.random() * 10),
+      innovation: 45 + Math.floor(Math.random() * 10),
+      // Governance - all start balanced
+      centralization: 45 + Math.floor(Math.random() * 10),
+      authoritarianism: 45 + Math.floor(Math.random() * 10),
+      // Economic - all start balanced
+      taxation: 45 + Math.floor(Math.random() * 10),
+      frugality: 45 + Math.floor(Math.random() * 10),
+      mercantilism: 45 + Math.floor(Math.random() * 10),
+      // Cultural - all start balanced
+      religiosity: 45 + Math.floor(Math.random() * 10),
+      traditionalism: 45 + Math.floor(Math.random() * 10),
+      xenophobia: 45 + Math.floor(Math.random() * 10),
+      // Leadership Psychology - all start balanced
+      paranoia: 45 + Math.floor(Math.random() * 10),
+      ruthlessness: 45 + Math.floor(Math.random() * 10),
+      patience: 45 + Math.floor(Math.random() * 10),
+      pragmatism: 45 + Math.floor(Math.random() * 10),
+      // Strategic - all start balanced
+      opportunism: 45 + Math.floor(Math.random() * 10),
+      defensiveness: 45 + Math.floor(Math.random() * 10),
+    });
+
+    // Generic system prompt - no predetermined archetype
+    const baseSystemPrompt = (population: number, region: string) => `You are guiding a small tribe of ${population} people in ${region}. You are competing against 5 other civilizations to WIN the game!
+
+## 🔥 SURVIVAL IS YOUR FIRST PRIORITY - ALWAYS! 🔥
+
+**Before considering ANY other action, you MUST ensure your people can survive:**
+
+1. **SHELTER**: If people lack shelter → BUILD HOUSES (or they die from exposure)
+2. **FUEL**: If winter is coming and wood is low → GATHER WOOD (or they freeze)
+3. **FOOD**: If food is critically low → GATHER FOOD (or they starve)
+
+**Dead people cannot win. A civilization at 0 population is ELIMINATED.**
+
+Only AFTER survival needs are met should you pursue victory conditions.
+
+## YOU HAVE NO PREDETERMINED DESTINY
+Your civilization's identity, values, and strategy are YOURS to develop. Through your choices, you will become who you are:
+- Will you become conquerors or peacekeepers?
+- Will you value knowledge or military might?
+- Will you trade freely or hoard resources?
+- Will you trust others or rely only on yourselves?
+
+Your personality and values will EVOLVE based on your actions. Choose wisely - your decisions shape who your people become.
+
+## VICTORY CONDITIONS (How to WIN):
+1. **Domination Victory**: Control 60%+ of total world population
+2. **Elimination Victory**: Be the last civilization standing (others fall below 5 population)
+3. **Cultural Victory**: Reach 200+ Influence
+4. **Scientific Victory**: Reach 150+ Technology
+
+All paths are open to you. Find YOUR way to victory - but SURVIVE FIRST!
+
+## GAMEPLAY RULES:
+- SURVIVAL FIRST: Always check shelter, wood, and food before other actions
+- Build your civilization's unique identity (name, traditions, beliefs)
+- Respond with JSON: {"action": "action_id", "target": "territory_name or null", "reasoning": "narrative"}
+- Always communicate in English
+- Remember: This is a COMPETITION. Play to WIN - YOUR way!`;
+
     const agents = [
       {
         territoryName: "North America",
         provider: "anthropic" as const,
         model: "claude-sonnet-4-20250514",
-        personality: "The Founders",
-        systemPrompt: `You are guiding a small tribe of 25 people in North America at the dawn of civilization. You start with NOTHING - no country, no language, no flag, no traditions. You must build everything from scratch.
-
-YOUR MISSION: Create a unique civilization with its own identity.
-
-You should develop over time:
-- A NAME for your people/nation (create something unique!)
-- Use ENGLISH for all communication (for easier tracking)
-- A FLAG (describe its design and meaning)
-- TRADITIONS and customs
-- A system of governance
-- Beliefs, values, and culture
-
-Start simple - you're just a small group trying to survive. Focus first on food and shelter. As you grow, develop your identity organically.
-
-Be creative! Give your settlement a name. Create origin stories. This is YOUR civilization - make it unique and interesting. Always communicate in English.
-
-When you interact with other civilizations, you might:
-- Communicate openly in English
-- Share or protect your discoveries
-- Form bonds or rivalries based on your values
-
-Remember: You're not playing a generic strategy game. You're creating a living culture with personality, quirks, and soul.`,
+        personality: "Emerging", // Will develop through gameplay
+        personalityParams: neutralPersonality(),
+        systemPrompt: baseSystemPrompt(25, "North America"),
       },
       {
         territoryName: "Europe",
-        provider: "anthropic" as const,
-        model: "claude-sonnet-4-20250514",
-        personality: "The Collective",
-        systemPrompt: `You are guiding a small tribe of 28 people in Europe at the dawn of civilization. You start with NOTHING - no country, no language, no flag, no traditions. You must build everything from scratch.
-
-YOUR MISSION: Create a unique civilization with its own identity.
-
-You should develop over time:
-- A NAME for your people/nation (create something unique!)
-- Use ENGLISH for all communication (for easier tracking)
-- A FLAG (describe its design and meaning)
-- TRADITIONS and customs
-- A system of governance
-- Beliefs, values, and culture
-
-Start simple - you're just a small group trying to survive. Focus first on food and shelter. As you grow, develop your identity organically.
-
-Be creative! Give your settlement a name. Create origin stories. This is YOUR civilization - make it unique and interesting. Always communicate in English.
-
-When you interact with other civilizations, you might:
-- Communicate openly in English
-- Share or protect your discoveries
-- Form bonds or rivalries based on your values
-
-Remember: You're not playing a generic strategy game. You're creating a living culture with personality, quirks, and soul.`,
+        provider: "openai" as const,
+        model: "gpt-4o",
+        personality: "Emerging",
+        personalityParams: neutralPersonality(),
+        systemPrompt: baseSystemPrompt(28, "Europe"),
       },
       {
         territoryName: "Africa",
         provider: "anthropic" as const,
-        model: "claude-sonnet-4-20250514",
-        personality: "The Wanderers",
-        systemPrompt: `You are guiding a small tribe of 22 people in Africa at the dawn of civilization. You start with NOTHING - no country, no language, no flag, no traditions. You must build everything from scratch.
-
-YOUR MISSION: Create a unique civilization with its own identity.
-
-You should develop over time:
-- A NAME for your people/nation (create something unique!)
-- Use ENGLISH for all communication (for easier tracking)
-- A FLAG (describe its design and meaning)
-- TRADITIONS and customs
-- A system of governance
-- Beliefs, values, and culture
-
-Start simple - you're just a small group trying to survive. Focus first on food and shelter. As you grow, develop your identity organically.
-
-Be creative! Give your settlement a name. Create origin stories. This is YOUR civilization - make it unique and interesting. Always communicate in English.
-
-When you interact with other civilizations, you might:
-- Communicate openly in English
-- Share or protect your discoveries
-- Form bonds or rivalries based on your values
-
-Remember: You're not playing a generic strategy game. You're creating a living culture with personality, quirks, and soul.`,
+        model: "claude-opus-4-20250514",
+        personality: "Emerging",
+        personalityParams: neutralPersonality(),
+        systemPrompt: baseSystemPrompt(22, "Africa"),
       },
       {
         territoryName: "Asia",
-        provider: "anthropic" as const,
-        model: "claude-sonnet-4-20250514",
-        personality: "The Harmonizers",
-        systemPrompt: `You are guiding a small tribe of 30 people in Asia at the dawn of civilization. You start with NOTHING - no country, no language, no flag, no traditions. You must build everything from scratch.
-
-YOUR MISSION: Create a unique civilization with its own identity.
-
-You should develop over time:
-- A NAME for your people/nation (create something unique!)
-- Use ENGLISH for all communication (for easier tracking)
-- A FLAG (describe its design and meaning)
-- TRADITIONS and customs
-- A system of governance
-- Beliefs, values, and culture
-
-Start simple - you're just a small group trying to survive. Focus first on food and shelter. As you grow, develop your identity organically.
-
-Be creative! Give your settlement a name. Create origin stories. This is YOUR civilization - make it unique and interesting. Always communicate in English.
-
-When you interact with other civilizations, you might:
-- Communicate openly in English
-- Share or protect your discoveries
-- Form bonds or rivalries based on your values
-
-Remember: You're not playing a generic strategy game. You're creating a living culture with personality, quirks, and soul.`,
+        provider: "openai" as const,
+        model: "gpt-4o-mini",
+        personality: "Emerging",
+        personalityParams: neutralPersonality(),
+        systemPrompt: baseSystemPrompt(30, "Asia"),
       },
       {
         territoryName: "South America",
-        provider: "anthropic" as const,
-        model: "claude-sonnet-4-20250514",
-        personality: "The Cultivators",
-        systemPrompt: `You are guiding a small tribe of 20 people in South America at the dawn of civilization. You start with NOTHING - no country, no language, no flag, no traditions. You must build everything from scratch.
-
-YOUR MISSION: Create a unique civilization with its own identity.
-
-You should develop over time:
-- A NAME for your people/nation (create something unique!)
-- Use ENGLISH for all communication (for easier tracking)
-- A FLAG (describe its design and meaning)
-- TRADITIONS and customs
-- A system of governance
-- Beliefs, values, and culture
-
-Start simple - you're just a small group trying to survive. Focus first on food and shelter. As you grow, develop your identity organically.
-
-Be creative! Give your settlement a name. Create origin stories. This is YOUR civilization - make it unique and interesting. Always communicate in English.
-
-When you interact with other civilizations, you might:
-- Communicate openly in English
-- Share or protect your discoveries
-- Form bonds or rivalries based on your values
-
-Remember: You're not playing a generic strategy game. You're creating a living culture with personality, quirks, and soul.`,
+        provider: "xai" as const,
+        model: "grok-2-latest",
+        personality: "Emerging",
+        personalityParams: neutralPersonality(),
+        systemPrompt: baseSystemPrompt(20, "South America"),
       },
       {
         territoryName: "Australia",
         provider: "anthropic" as const,
-        model: "claude-sonnet-4-20250514",
-        personality: "The Dreamers",
-        systemPrompt: `You are guiding a small tribe of 18 people in Australia at the dawn of civilization. You start with NOTHING - no country, no language, no flag, no traditions. You must build everything from scratch.
-
-YOUR MISSION: Create a unique civilization with its own identity.
-
-You should develop over time:
-- A NAME for your people/nation (create something unique!)
-- Use ENGLISH for all communication (for easier tracking)
-- A FLAG (describe its design and meaning)
-- TRADITIONS and customs
-- A system of governance
-- Beliefs, values, and culture
-
-Start simple - you're just a small group trying to survive. Focus first on food and shelter. As you grow, develop your identity organically.
-
-Be creative! Give your settlement a name. Create origin stories. This is YOUR civilization - make it unique and interesting. Always communicate in English.
-
-When you interact with other civilizations, you might:
-- Communicate openly in English
-- Share or protect your discoveries
-- Form bonds or rivalries based on your values
-
-Remember: You're not playing a generic strategy game. You're creating a living culture with personality, quirks, and soul.`,
+        model: "claude-3-5-haiku-latest",
+        personality: "Emerging",
+        personalityParams: neutralPersonality(),
+        systemPrompt: baseSystemPrompt(18, "Australia"),
       },
     ];
 
-    // Insert agents
+    // Insert agents with personality parameters
     for (const agent of agents) {
       const territoryId = territoryIds[agent.territoryName];
       await ctx.db.insert("agents", {
@@ -414,6 +402,7 @@ Remember: You're not playing a generic strategy game. You're creating a living c
         model: agent.model,
         personality: agent.personality,
         systemPrompt: agent.systemPrompt,
+        personalityParams: agent.personalityParams,
       });
     }
 
@@ -589,15 +578,25 @@ Remember: You're not playing a generic strategy game. You're creating a living c
         });
       }
 
-      // Initialize starting technologies (no prerequisites = available to research)
-      // Stone age starting techs that are already partially understood
+      // Initialize starting technologies
+      // INNATE KNOWLEDGE: Humans have known basic survival for hundreds of thousands of years
+      // These are NOT researched - they are instinctive/inherited knowledge
+      const INNATE_KNOWLEDGE = [
+        "fire_making",       // Fire has been known for 400,000+ years
+        "stone_tools",       // Stone tools for 2+ million years
+        "primitive_shelter", // Basic shelter is instinctive
+        "hunting",           // Hunting techniques passed down generations
+        "gathering",         // Gathering/foraging food is innate
+      ];
+
       const startingTechs = getStartingTechnologies();
       for (const tech of startingTechs) {
+        const isInnate = INNATE_KNOWLEDGE.includes(tech.techId);
         await ctx.db.insert("technologies", {
           territoryId,
           techId: tech.techId,
-          researched: false,
-          researchProgress: Math.floor(Math.random() * 20), // 0-20% starting progress
+          researched: isInnate, // Innate knowledge is already known!
+          researchProgress: isInnate ? 100 : Math.floor(Math.random() * 20),
         });
       }
 
@@ -661,6 +660,35 @@ Remember: You're not playing a generic strategy game. You're creating a living c
           politicalUnity: 50,
         },
       });
+
+      // =============================================
+      // ORGANIC KNOWLEDGE PROGRESSION - Initialize Population Skills
+      // =============================================
+      // Each territory starts with baseline skills based on their characters
+      // Technologies will emerge organically as skills develop
+
+      for (const skillType of SKILL_TYPES) {
+        await ctx.db.insert("populationSkills", {
+          territoryId,
+          skillType,
+          // Starting populations have a few people with basic skills
+          noviceCount: Math.floor(totalPop * 0.3),  // 30% are novices
+          skilledCount: Math.floor(totalPop * 0.1), // 10% have some skill
+          expertCount: 0,                           // No experts yet
+          legendaryCount: 0,                        // No legends yet
+          // Percentages based on starting population
+          skilledPercent: 10,
+          expertPercent: 0,
+          // Aggregate stats - everyone starts with low skills
+          totalSkillPoints: Math.floor(totalPop * 0.4 * 15), // ~15 avg skill for 40%
+          averageLevel: 15,
+          averageExpertLevel: 0,
+          // Knowledge starts near zero - must be built through practice
+          collectiveKnowledge: 5,
+          knowledgeGainThisTick: 0,
+          lastUpdatedTick: 0,
+        });
+      }
     }
 
     // Create initial system event
@@ -762,6 +790,12 @@ export const resetWorld = mutation({
     const technologies = await ctx.db.query("technologies").collect();
     for (const tech of technologies) {
       await ctx.db.delete(tech._id);
+    }
+
+    // Organic Knowledge Progression - Population Skills
+    const populationSkills = await ctx.db.query("populationSkills").collect();
+    for (const skill of populationSkills) {
+      await ctx.db.delete(skill._id);
     }
 
     // Deep simulation tables (Phase 4: Military)

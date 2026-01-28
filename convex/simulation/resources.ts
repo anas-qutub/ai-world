@@ -1,4 +1,5 @@
 import { Doc } from "../_generated/dataModel";
+import { WOOD_CONSTANTS, SEASONAL_EFFECTS, Season } from "./survival";
 
 // Natural minimum - resources can't go below 0
 function naturalMin(value: number, min: number = 0): number {
@@ -30,24 +31,30 @@ export function calculateExcessDecay(value: number, threshold: number = 80): num
 // Calculate passive resource changes for a territory each tick
 // Resources can grow beyond 100 but face natural consequences at high levels
 export function calculateResourceChanges(
-  territory: Doc<"territories">
+  territory: Doc<"territories">,
+  season?: Season
 ): Partial<Doc<"territories">> {
   const changes: Partial<Doc<"territories">> = {};
+  const currentSeason = season || "spring"; // Default to spring if not provided
+  const seasonalEffects = SEASONAL_EFFECTS[currentSeason];
 
-  // Food consumption - scales with population
-  // Each person needs roughly 0.3 food units per tick
-  const foodConsumption = territory.population * 0.3;
+  // Food consumption - scales with population and season
+  // Each person needs roughly 0.3 food units per tick, modified by season
+  const baseFoodConsumption = territory.population * 0.3;
+  const foodConsumption = baseFoodConsumption * seasonalEffects.foodConsumptionModifier;
 
   // Baseline food production from foraging/hunting/gathering
   // Even without farms, a small population can sustain itself through gathering
   // Production scales with population (more gatherers) but with diminishing returns
   // and is limited by carrying capacity of the land
+  // Modified by season - harder to forage in winter
   const baselineGatheringCapacity = 40; // Land can support ~40 food from natural gathering
   const gatheringEfficiency = Math.exp(-territory.population / 50); // Diminishing returns
-  const baselineFoodProduction = Math.min(
+  const baseGatheringOutput = Math.min(
     baselineGatheringCapacity * 0.5, // Max gathering is 20 food/tick
     territory.population * 0.2 * gatheringEfficiency // Each person gathers ~0.2 food with efficiency
   );
+  const baselineFoodProduction = baseGatheringOutput * seasonalEffects.gatheringModifier;
 
   let newFood = territory.food - foodConsumption + baselineFoodProduction;
 
@@ -104,6 +111,15 @@ export function calculateResourceChanges(
   const wealthDecay = calculateExcessDecay(territory.wealth, 80);
   if (wealthDecay > 0) {
     changes.wealth = naturalMin(territory.wealth - wealthDecay, 0);
+  }
+
+  // Wood stockpile natural regeneration (forests regrow slowly)
+  const currentWood = (territory as any).woodStockpile || 0;
+  if (currentWood < WOOD_CONSTANTS.maxNaturalWood) {
+    // Regeneration is better in spring/summer
+    const regenModifier = currentSeason === "spring" || currentSeason === "summer" ? 1.5 : 1.0;
+    const woodRegen = WOOD_CONSTANTS.forestRegeneration * regenModifier;
+    changes.woodStockpile = Math.min(WOOD_CONSTANTS.maxNaturalWood, currentWood + woodRegen);
   }
 
   return changes;
@@ -334,7 +350,50 @@ export function calculateActionEffects(
   territory: Doc<"territories">,
   targetTerritory?: Doc<"territories">
 ): Partial<Doc<"territories">> {
+  // Get current survival resources with defaults
+  const currentWood = (territory as any).woodStockpile || 0;
+  const currentShelter = (territory as any).shelterCapacity || 0;
+  const currentPreserved = (territory as any).preservedFood || 0;
+
   switch (action) {
+    // === SURVIVAL ACTIONS ===
+    case "gather_wood":
+      return {
+        woodStockpile: currentWood + WOOD_CONSTANTS.baseGatheringPerAction,
+        happiness: naturalMin(territory.happiness - 1, 0), // Hard labor
+        knowledge: naturalMin(territory.knowledge + 0.5, 0), // Learn about forests
+      } as Partial<Doc<"territories">>;
+
+    case "build_houses":
+      if (currentWood < WOOD_CONSTANTS.buildHouseCost) {
+        // Not enough wood - no effect (action handler should check this)
+        return {};
+      }
+      return {
+        woodStockpile: currentWood - WOOD_CONSTANTS.buildHouseCost,
+        shelterCapacity: currentShelter + WOOD_CONSTANTS.shelterPerBuild,
+        happiness: naturalMin(territory.happiness + 3, 0), // People happy to have homes
+        wealth: naturalMin(territory.wealth + 2, 0), // Shelter is wealth
+      } as Partial<Doc<"territories">>;
+
+    case "stockpile_fuel":
+      // Mark wood for heating - just a priority action, wood is already stockpiled
+      return {
+        happiness: naturalMin(territory.happiness + 1, 0), // Feeling prepared
+        knowledge: naturalMin(territory.knowledge + 0.5, 0), // Survival knowledge
+      };
+
+    case "preserve_food":
+      if (currentWood < WOOD_CONSTANTS.preserveFoodCost || territory.food < WOOD_CONSTANTS.preservedFoodAmount) {
+        return {};
+      }
+      return {
+        woodStockpile: currentWood - WOOD_CONSTANTS.preserveFoodCost,
+        food: naturalMin(territory.food - WOOD_CONSTANTS.preservedFoodAmount, 0), // Use fresh food
+        preservedFood: currentPreserved + WOOD_CONSTANTS.preservedFoodAmount, // Add to preserved stores
+        knowledge: naturalMin(territory.knowledge + 1, 0), // Learn preservation
+      } as Partial<Doc<"territories">>;
+
     case "gather_food":
       return {
         food: naturalMin(territory.food + 8, 0),

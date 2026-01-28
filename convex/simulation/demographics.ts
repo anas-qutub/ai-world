@@ -1,5 +1,6 @@
 import { Doc, Id } from "../_generated/dataModel";
 import { MutationCtx } from "../_generated/server";
+import { killFromFamine } from "./characters";
 
 // Natural minimum - resources can't go below 0
 function naturalMin(value: number, min: number = 0): number {
@@ -134,6 +135,10 @@ export async function processDemographics(
   // Famine event when food per capita is critically low
   if (foodPerCapita < FOOD_REQUIREMENT_PER_PERSON * 0.3) {
     events.push({ type: "famine", description: "Severe famine - starvation is widespread" });
+
+    // Characters can die from famine (not just common people)
+    // Even rulers and nobles suffer when there's no food
+    await processCharacterFamineDeaths(ctx, territoryId, tick, events);
   } else if (foodPerCapita < FOOD_REQUIREMENT_PER_PERSON * 0.6) {
     events.push({ type: "food_shortage", description: "Food shortage affecting the population" });
   }
@@ -371,4 +376,63 @@ export async function getDemographicSummary(
     growthRate,
     workforce: totalWorkers,
   };
+}
+
+// =============================================
+// CHARACTER DEATH FROM FAMINE
+// =============================================
+
+/**
+ * Characters can die from famine - even nobles and rulers starve when there's no food
+ * This is a circumstantial death, not old age death
+ */
+async function processCharacterFamineDeaths(
+  ctx: MutationCtx,
+  territoryId: Id<"territories">,
+  tick: number,
+  events: Array<{ type: string; description: string }>
+): Promise<void> {
+  // Get all living characters in this territory
+  const characters = await ctx.db
+    .query("characters")
+    .withIndex("by_territory", (q) => q.eq("territoryId", territoryId))
+    .filter((q) => q.eq(q.field("isAlive"), true))
+    .collect();
+
+  // During severe famine, anyone can die
+  // Rulers have better access to remaining food, so lower chance
+  // Common court members (advisors, generals) have moderate chance
+  for (const character of characters) {
+    let deathChance = 0.03; // 3% base chance per tick during famine
+
+    // Rulers are protected (better food access)
+    if (character.role === "ruler") {
+      deathChance = 0.01; // 1% chance
+    }
+
+    // Heirs are also somewhat protected
+    if (character.role === "heir") {
+      deathChance = 0.02;
+    }
+
+    // Already wounded characters are more vulnerable to famine
+    if (character.isWounded) {
+      deathChance += 0.05; // +5% if wounded
+    }
+
+    // Old characters (80+) are more vulnerable
+    if (character.age > 80) {
+      deathChance += 0.03;
+    }
+
+    // Roll for death
+    if (Math.random() < deathChance) {
+      await killFromFamine(ctx, character._id, tick);
+
+      events.push({
+        type: "character_death_famine",
+        description: `${character.title} ${character.name} perished during the famine.`,
+      });
+    }
+  }
 }

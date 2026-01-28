@@ -1,5 +1,6 @@
 import { Doc, Id } from "../_generated/dataModel";
 import { MutationCtx } from "../_generated/server";
+import { recordMemory } from "./memory";
 
 // Clamp helper
 function clamp(value: number, min: number, max: number): number {
@@ -99,6 +100,22 @@ export async function createDiseaseOutbreak(
     createdAt: Date.now(),
   });
 
+  // =============================================
+  // ORGANIC AI GROWTH - Record crisis memory
+  // =============================================
+  const agent = await ctx.db
+    .query("agents")
+    .withIndex("by_territory", (q) => q.eq("territoryId", originTerritoryId))
+    .first();
+
+  if (agent) {
+    await recordMemory(ctx, agent._id, {
+      type: "crisis",
+      description: `${name} struck our people! ${diseaseDef.description}. Dark times have begun.`,
+      emotionalWeight: -60, // Negative - disease is traumatic
+    });
+  }
+
   return { success: true, diseaseId, name };
 }
 
@@ -142,6 +159,25 @@ export async function processDiseases(
         severity: "positive",
         createdAt: Date.now(),
       });
+
+      // =============================================
+      // ORGANIC AI GROWTH - Record survival memory
+      // =============================================
+      // All affected territories remember surviving the plague
+      for (const affectedTerritoryId of disease.affectedTerritories) {
+        const affectedAgent = await ctx.db
+          .query("agents")
+          .withIndex("by_territory", (q) => q.eq("territoryId", affectedTerritoryId))
+          .first();
+
+        if (affectedAgent) {
+          await recordMemory(ctx, affectedAgent._id, {
+            type: "crisis",
+            description: `We survived ${disease.name}! Though many perished, our people endured.`,
+            emotionalWeight: 30, // Positive - survival is a triumph
+          });
+        }
+      }
 
       continue;
     }
@@ -265,6 +301,24 @@ async function attemptDiseaseSpread(
         severity: "critical",
         createdAt: Date.now(),
       });
+
+      // =============================================
+      // ORGANIC AI GROWTH - Record disease spread memory
+      // =============================================
+      // The infected territory remembers where the disease came from
+      const targetAgent = await ctx.db
+        .query("agents")
+        .withIndex("by_territory", (q) => q.eq("territoryId", targetId))
+        .first();
+
+      if (targetAgent) {
+        await recordMemory(ctx, targetAgent._id, {
+          type: "crisis",
+          targetTerritoryId: sourceId, // Remember who "brought" the disease
+          description: `${disease.name} spread to our lands from ${source.name}! Many will suffer.`,
+          emotionalWeight: -50, // Negative - they blame the source
+        });
+      }
     }
   }
 }

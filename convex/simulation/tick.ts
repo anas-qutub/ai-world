@@ -19,7 +19,7 @@ import { checkForBattles, updateWarStatus, processRetreatingArmies } from "./com
 import { processSieges } from "./siege";
 import { getCurrentEra, TECHNOLOGY_ERAS } from "./technology";
 // Engagement system imports
-import { processCharacterAging, applyCharacterProsperityEffects } from "./characters";
+import { processCharacterAging, applyCharacterProsperityEffects, checkForAccidents, processExiledCharacters, processDynastyBirths, processRisingStars, processCharacterMaturation } from "./characters";
 import { processPlots, checkPlotOpportunities } from "./plots";
 import { updateActiveWars, recordBattle } from "./warChronicles";
 import { updateLeaderboards } from "./leaderboards";
@@ -28,6 +28,26 @@ import { calculateTensions } from "./tensions";
 import { processRivalries } from "./rivalries";
 import { generateYearlyChronicle } from "./recaps";
 import { updateProsperityTier, applyProsperityEffects, initializeProsperityTier } from "./prosperity";
+import { processSurvival, getSeason, processInstinctiveSurvival } from "./survival";
+// Competition system imports
+import { checkVictoryConditions, checkElimination, startMatch, endMatch, recordKeyMoment } from "./victory";
+import { recordPowerScores, getPowerRankings } from "./scoring";
+// Personality evolution - traits evolve based on events
+import { evolvePersonalityFromEvent, evolvePersonalityFromOutcome } from "./personalityEvolution";
+// Organic AI Growth - Memory, Bonds, Goals
+import { decayMemories, getRelevantMemories, recordMemory } from "./memory";
+import { processBonds, inheritBonds, createBond, getBonds } from "./bonds";
+import { checkForGoalTriggers, updateGoalProgress, checkGoalAchievement, pruneImpossibleGoals } from "./goals";
+import { processRulerLegitimacy } from "./rulerLegitimacy";
+// Society Systems - Professions, Education, Religion, Guilds, Judicial
+import { processProfessions, autoAssignProfessions } from "./professions";
+import { processEducation } from "./education";
+import { processReligion } from "./religion";
+import { processGuilds } from "./guilds";
+import { processImprisoned } from "./judicial";
+// Organic Knowledge Progression System
+import { aggregatePopulationSkills, checkTechRequirements, calculateSkillBonus, getKnowledgeSummary } from "./collectiveKnowledge";
+import { TECH_TREE, TechSkillRequirement } from "../data/techTree";
 
 // System interconnection effects
 const SYSTEM_TRIGGERS = {
@@ -75,11 +95,15 @@ export const processTick = internalMutation({
       newYear += 1;
     }
 
+    // Calculate season from month
+    const newSeason = getSeason(newMonth);
+
     // Update world state
     await ctx.db.patch(world._id, {
       tick: newTick,
       month: newMonth,
       year: newYear,
+      season: newSeason,
       lastTickAt: Date.now(),
     });
 
@@ -91,8 +115,8 @@ export const processTick = internalMutation({
     // =============================================
 
     for (const territory of territories) {
-      // Apply passive resource changes
-      const changes = calculateResourceChanges(territory);
+      // Apply passive resource changes (with seasonal modifiers)
+      const changes = calculateResourceChanges(territory, newSeason);
       await ctx.db.patch(territory._id, changes);
 
       // Process building-based resource production
@@ -148,6 +172,26 @@ export const processTick = internalMutation({
             severity: "negative",
             createdAt: Date.now(),
           });
+
+          // Evolve personality from famine - hardship shapes civilizations!
+          if (event.type === "famine") {
+            const agent = await ctx.db
+              .query("agents")
+              .withIndex("by_territory", (q) => q.eq("territoryId", territory._id))
+              .first();
+            if (agent) {
+              await evolvePersonalityFromEvent(ctx as any, agent._id, "famine");
+
+              // =============================================
+              // ORGANIC AI GROWTH - Record famine memory
+              // =============================================
+              await recordMemory(ctx, agent._id, {
+                type: "crisis",
+                description: `Famine struck our people! ${event.description} Hunger and desperation spread.`,
+                emotionalWeight: -55, // Famine is deeply traumatic
+              });
+            }
+          }
         }
       }
 
@@ -175,6 +219,44 @@ export const processTick = internalMutation({
 
       // Process active rebellions
       await processRebellions(ctx, territory._id, newTick);
+
+      // =============================================
+      // INSTINCTIVE SURVIVAL BEHAVIOR
+      // =============================================
+      // People naturally try to survive - foraging when hungry,
+      // building makeshift shelters when exposed, gathering wood when cold.
+      // This provides ~30-50% of what's needed - AI must still make good decisions!
+      const instinctResult = await processInstinctiveSurvival(ctx, territory._id, newTick, newSeason);
+
+      // Log instinctive survival events
+      for (const event of instinctResult.events) {
+        await ctx.db.insert("events", {
+          tick: newTick,
+          type: "decision",
+          territoryId: territory._id,
+          title: "Survival Instinct",
+          description: event.description,
+          severity: "info",
+          createdAt: Date.now(),
+        });
+      }
+
+      // Process survival mechanics (shelter, warmth, exposure)
+      // Now calculated AFTER instincts have improved resources
+      const survivalResult = await processSurvival(ctx, territory._id, newTick, newSeason);
+
+      // Log survival events
+      for (const event of survivalResult.events) {
+        await ctx.db.insert("events", {
+          tick: newTick,
+          type: event.type === "exposure_deaths" ? "disaster" : "crisis",
+          territoryId: territory._id,
+          title: event.title,
+          description: event.description,
+          severity: event.type === "exposure_deaths" ? "critical" : "negative",
+          createdAt: Date.now(),
+        });
+      }
 
       // Check for disease risk
       const diseaseRisk = await checkDiseaseRisk(ctx, territory._id, newTick);
@@ -214,6 +296,16 @@ export const processTick = internalMutation({
         severity: "critical",
         createdAt: Date.now(),
       });
+
+      // Evolve personalities based on battle - war shapes civilizations!
+      // Find the agents for both sides and evolve their personalities
+      const allAgents = await ctx.db.query("agents").collect();
+      for (const agent of allAgents) {
+        const territory = await ctx.db.get(agent.territoryId);
+        if (territory && (territory.name === battle.attacker || territory.name === battle.defender)) {
+          await evolvePersonalityFromEvent(ctx as any, agent._id, "invasion");
+        }
+      }
     }
 
     // =============================================
@@ -370,6 +462,46 @@ export const processTick = internalMutation({
             : "negative",
           createdAt: Date.now(),
         });
+
+        // =============================================
+        // ORGANIC AI GROWTH - Record random event memories
+        // =============================================
+        const randomEventAgent = await ctx.db
+          .query("agents")
+          .withIndex("by_territory", (q) => q.eq("territoryId", territory._id))
+          .first();
+
+        if (randomEventAgent) {
+          if (event.type === "breakthrough") {
+            // Discovery/breakthrough - positive memory
+            await recordMemory(ctx, randomEventAgent._id, {
+              type: "victory", // Breakthroughs are victories of knowledge
+              description: event.description,
+              emotionalWeight: 45, // Positive but not as strong as military victory
+            });
+          } else if (event.type === "population_boom") {
+            // New life - joyful memory
+            await recordMemory(ctx, randomEventAgent._id, {
+              type: "gift", // New life is a gift
+              description: event.description,
+              emotionalWeight: 35, // Warm positive memory
+            });
+          } else if (event.type === "disaster") {
+            // Natural hardship - crisis memory
+            await recordMemory(ctx, randomEventAgent._id, {
+              type: "crisis",
+              description: event.description,
+              emotionalWeight: -35, // Negative but survivable
+            });
+          } else if (event.type === "crisis" && event.title.includes("Death")) {
+            // Character death - somber memory
+            await recordMemory(ctx, randomEventAgent._id, {
+              type: "character_death",
+              description: event.description,
+              emotionalWeight: -40, // Loss of community member
+            });
+          }
+        }
       }
 
       // System interconnection: Famine triggers
@@ -402,6 +534,82 @@ export const processTick = internalMutation({
           title: "Character Death",
           description: event.description,
           severity: "critical",
+          createdAt: Date.now(),
+        });
+      }
+    }
+
+    // Process exiled characters (they may die in exile)
+    const exileEvents = await processExiledCharacters(ctx, newTick);
+    for (const event of exileEvents) {
+      await ctx.db.insert("events", {
+        tick: newTick,
+        type: "crisis",
+        title: "Death in Exile",
+        description: event.description,
+        severity: "negative",
+        createdAt: Date.now(),
+      });
+    }
+
+    // Check for random accidents per territory
+    for (const territory of territories) {
+      const accidentEvents = await checkForAccidents(ctx, territory._id, newTick);
+      for (const event of accidentEvents) {
+        await ctx.db.insert("events", {
+          tick: newTick,
+          type: event.type === "death" ? "crisis" : "decision",
+          territoryId: territory._id,
+          title: event.type === "death" ? "Tragic Accident" : "Accident",
+          description: event.description,
+          severity: event.type === "death" ? "critical" : "negative",
+          createdAt: Date.now(),
+        });
+      }
+
+      // =============================================
+      // CHARACTER SPAWNING FROM POPULATION
+      // =============================================
+
+      // Process dynasty births (rulers/heirs having children)
+      const birthEvents = await processDynastyBirths(ctx, territory._id, newTick);
+      for (const event of birthEvents) {
+        await ctx.db.insert("events", {
+          tick: newTick,
+          type: "breakthrough",
+          territoryId: territory._id,
+          title: "Royal Birth!",
+          description: event.description,
+          severity: "positive",
+          createdAt: Date.now(),
+        });
+      }
+
+      // Process rising stars (talented individuals from population)
+      const risingStarEvents = await processRisingStars(ctx, territory._id, newTick);
+      for (const event of risingStarEvents) {
+        await ctx.db.insert("events", {
+          tick: newTick,
+          type: "breakthrough",
+          territoryId: territory._id,
+          title: "Rising Star",
+          description: event.description,
+          severity: "positive",
+          createdAt: Date.now(),
+        });
+      }
+
+      // Process character maturation (children coming of age)
+      const maturationEvents = await processCharacterMaturation(ctx, territory._id, newTick);
+      for (const event of maturationEvents) {
+        await ctx.db.insert("events", {
+          tick: newTick,
+          type: event.type === "coming_of_age" ? "breakthrough" : "decision",
+          territoryId: territory._id,
+          title: event.type === "coming_of_age" ? "Coming of Age" :
+                 event.type === "heir_named" ? "Heir Named" : "Elder Wisdom",
+          description: event.description,
+          severity: "positive",
           createdAt: Date.now(),
         });
       }
@@ -483,6 +691,228 @@ export const processTick = internalMutation({
         });
       }
 
+      // Process ruler legitimacy and popular trust
+      await processRulerLegitimacy(ctx, territory._id, newTick);
+
+      // =============================================
+      // PHASE 6b: SOCIETY SYSTEMS
+      // =============================================
+
+      // Auto-assign professions to characters without one (once per year)
+      if (newTick % 12 === 0) {
+        await autoAssignProfessions(ctx, territory._id, newTick);
+      }
+
+      // Process professions (skill growth, production)
+      const professionOutput = await processProfessions(ctx, territory._id, newTick);
+      // Add food from farmer professions to territory
+      if (professionOutput.foodProduced > 0) {
+        const currentTerritory = await ctx.db.get(territory._id);
+        if (currentTerritory) {
+          await ctx.db.patch(territory._id, {
+            food: Math.min(200, currentTerritory.food + professionOutput.foodProduced * 0.1),
+          });
+        }
+      }
+
+      // Process education (student learning, graduations)
+      const educationEvents = await processEducation(ctx, territory._id, newTick);
+      for (const event of educationEvents) {
+        if (event.type === "graduation") {
+          await ctx.db.insert("events", {
+            tick: newTick,
+            type: "breakthrough",
+            territoryId: territory._id,
+            title: "Graduation",
+            description: event.description,
+            severity: "positive",
+            createdAt: Date.now(),
+          });
+        }
+      }
+
+      // Process religion (conversions, tithes, religious events)
+      const religionEvents = await processReligion(ctx, territory._id, newTick);
+      for (const event of religionEvents) {
+        await ctx.db.insert("events", {
+          tick: newTick,
+          type: event.type === "miracle" ? "breakthrough" : "decision",
+          territoryId: territory._id,
+          title: event.type === "miracle" ? "Religious Miracle!" : "Religious Event",
+          description: event.description,
+          severity: event.type === "miracle" ? "positive" : "info",
+          createdAt: Date.now(),
+        });
+      }
+
+      // Process guilds (apprentice training, promotions)
+      const guildEvents = await processGuilds(ctx, territory._id, newTick);
+      for (const event of guildEvents) {
+        await ctx.db.insert("events", {
+          tick: newTick,
+          type: "breakthrough",
+          territoryId: territory._id,
+          title: "Guild Promotion",
+          description: event.description,
+          severity: "positive",
+          createdAt: Date.now(),
+        });
+      }
+
+      // Process judicial system (prison releases, deaths)
+      const judicialEvents = await processImprisoned(ctx, territory._id, newTick);
+      for (const event of judicialEvents) {
+        await ctx.db.insert("events", {
+          tick: newTick,
+          type: event.type === "death" ? "crisis" : "decision",
+          territoryId: territory._id,
+          title: event.type === "death" ? "Prison Death" :
+                 event.type === "escape" ? "Prison Escape!" : "Prisoner Released",
+          description: event.description,
+          severity: event.type === "death" ? "negative" :
+                   event.type === "escape" ? "negative" : "info",
+          createdAt: Date.now(),
+        });
+      }
+
+      // =============================================
+      // PHASE 6c: ORGANIC KNOWLEDGE PROGRESSION
+      // =============================================
+      // Technologies emerge organically when enough of your population
+      // has practical skill in related areas. No explicit "research" needed!
+
+      // 1. Aggregate all character skills into population-level statistics
+      await aggregatePopulationSkills(ctx, territory._id, newTick);
+
+      // 2. Check each unresearched tech for skill requirements
+      const territoryTechs = await ctx.db
+        .query("technologies")
+        .withIndex("by_territory", (q) => q.eq("territoryId", territory._id))
+        .collect();
+
+      const researchedTechIds = new Set(
+        territoryTechs.filter((t) => t.researched).map((t) => t.techId)
+      );
+
+      // Get all population skills for this territory
+      const popSkillsArray = await ctx.db
+        .query("populationSkills")
+        .withIndex("by_territory", (q) => q.eq("territoryId", territory._id))
+        .collect();
+
+      const popSkillsMap = new Map(
+        popSkillsArray.map((ps) => [ps.skillType, ps])
+      );
+
+      // Find technologies that can be researched (prerequisites met)
+      for (const tech of TECH_TREE) {
+        // Skip if already researched
+        if (researchedTechIds.has(tech.techId)) continue;
+
+        // Skip if missing prerequisites
+        const hasAllPrereqs = tech.prerequisites.every((prereq) =>
+          researchedTechIds.has(prereq)
+        );
+        if (!hasAllPrereqs) continue;
+
+        // Get or create technology record
+        let techRecord = territoryTechs.find((t) => t.techId === tech.techId);
+        if (!techRecord) {
+          const newId = await ctx.db.insert("technologies", {
+            territoryId: territory._id,
+            techId: tech.techId,
+            researched: false,
+            researchProgress: 0,
+          });
+          techRecord = {
+            _id: newId,
+            _creationTime: Date.now(),
+            territoryId: territory._id,
+            techId: tech.techId,
+            researched: false,
+            researchProgress: 0,
+          };
+        }
+
+        // For innate technologies, auto-complete them
+        if (tech.isInnate) {
+          await ctx.db.patch(techRecord._id, {
+            researched: true,
+            researchProgress: 100,
+            researchedAtTick: newTick,
+          });
+          continue;
+        }
+
+        // Check skill requirements
+        const requirements = await checkTechRequirements(
+          ctx,
+          territory._id,
+          tech.requiredSkills || []
+        );
+
+        if (requirements.met) {
+          // Requirements met! Calculate progress based on collective skill
+          const skillBonus = calculateSkillBonus(
+            tech.requiredSkills || [],
+            popSkillsMap
+          );
+
+          // Mark research as started if not already
+          if (!techRecord.researchStartedTick) {
+            await ctx.db.patch(techRecord._id, {
+              researchStartedTick: newTick,
+            });
+          }
+
+          // Add progress (base + skill bonus)
+          const newProgress = Math.min(
+            100,
+            (techRecord.researchProgress || 0) + skillBonus
+          );
+          await ctx.db.patch(techRecord._id, {
+            researchProgress: newProgress,
+          });
+
+          // Check for breakthrough (random chance when progress > 80%)
+          if (newProgress >= 80 && !techRecord.researched) {
+            const breakthroughChance = (newProgress - 80) * 0.03; // 3% per point over 80
+            if (Math.random() < breakthroughChance || newProgress >= 100) {
+              // EUREKA! Technology discovered!
+              await ctx.db.patch(techRecord._id, {
+                researched: true,
+                researchProgress: 100,
+                researchedAtTick: newTick,
+              });
+
+              // Log the breakthrough
+              await ctx.db.insert("events", {
+                tick: newTick,
+                type: "breakthrough",
+                territoryId: territory._id,
+                title: `Discovery: ${tech.name}!`,
+                description: `Through years of practice and accumulated knowledge, your people have discovered ${tech.name}! ${tech.description}`,
+                severity: "positive",
+                createdAt: Date.now(),
+              });
+
+              // Record as memory for the agent
+              const agent = await ctx.db
+                .query("agents")
+                .withIndex("by_territory", (q) => q.eq("territoryId", territory._id))
+                .first();
+              if (agent) {
+                await recordMemory(ctx, agent._id, {
+                  type: "victory",
+                  description: `Our people discovered ${tech.name}! Their accumulated knowledge and practice finally yielded a breakthrough.`,
+                  emotionalWeight: 50,
+                });
+              }
+            }
+          }
+        }
+      }
+
       // Calculate tension indicators
       await calculateTensions(ctx, territory._id, newTick);
 
@@ -539,6 +969,136 @@ export const processTick = internalMutation({
       });
     }
 
+    // =============================================
+    // PHASE 6B: ORGANIC AI GROWTH - MEMORY, BONDS, GOALS
+    // =============================================
+
+    // Process memory decay, bonds, and goals for each agent
+    const organicGrowthAgents = await ctx.db.query("agents").collect();
+    for (const agent of organicGrowthAgents) {
+      // Skip eliminated territories
+      const territory = await ctx.db.get(agent.territoryId);
+      if (!territory || (territory as any).isEliminated) continue;
+
+      // 1. Decay memories over time
+      await decayMemories(ctx, agent._id, newTick);
+
+      // 2. Get recent memories for goal triggers
+      const recentMemories = await getRelevantMemories(
+        ctx,
+        agent._id,
+        { limit: 20 }
+      );
+
+      // 3. Check for new emergent goals based on experiences
+      await checkForGoalTriggers(ctx, agent._id, territory, recentMemories);
+
+      // 4. Update goal progress
+      await updateGoalProgress(ctx, agent._id, territory);
+
+      // 5. Check if any goals have been achieved
+      const achievements = await checkGoalAchievement(ctx, agent._id);
+      for (const achievement of achievements) {
+        await ctx.db.insert("events", {
+          tick: newTick,
+          type: "breakthrough",
+          territoryId: territory._id,
+          title: "Goal Achieved!",
+          description: achievement,
+          severity: "positive",
+          createdAt: Date.now(),
+        });
+      }
+
+      // 6. Prune impossible goals
+      await pruneImpossibleGoals(ctx, agent._id);
+    }
+
+    // =============================================
+    // ALLIANCE DURATION BONDS - Reward long alliances
+    // =============================================
+    // Every 10 ticks, check for long-standing alliances and create gratitude bonds
+    if (newTick % 10 === 0) {
+      const allRelationships = await ctx.db.query("relationships").collect();
+
+      for (const rel of allRelationships) {
+        // Check for long alliances (hasAlliance = true for extended period)
+        if (rel.hasAlliance && rel.status === "allied") {
+          // Check if alliance has existed for 10+ ticks by looking at lastInteractionTick
+          // or just create bond if they've been allied (the bond system handles duplicates)
+
+          // Check if we already have an alliance bond
+          const existingBonds = await getBonds(ctx, rel.territory1Id, rel.territory2Id);
+          const hasAllianceBond = existingBonds.some(b => b.bondType === "alliance_bond");
+
+          if (!hasAllianceBond) {
+            const territory1 = await ctx.db.get(rel.territory1Id);
+            const territory2 = await ctx.db.get(rel.territory2Id);
+
+            if (territory1 && territory2 && !(territory1 as any).isEliminated && !(territory2 as any).isEliminated) {
+              // Create mutual alliance bonds
+              await createBond(
+                ctx,
+                rel.territory1Id,
+                rel.territory2Id,
+                "alliance_bond",
+                40,
+                `Our alliance with ${territory2.name} has proven true through the seasons.`,
+                true // Hereditary - good alliances are remembered
+              );
+
+              await createBond(
+                ctx,
+                rel.territory2Id,
+                rel.territory1Id,
+                "alliance_bond",
+                40,
+                `Our alliance with ${territory1.name} has stood the test of time.`,
+                true
+              );
+            }
+          }
+        }
+
+        // Also check for long trade partnerships
+        if (rel.hasTradeAgreement && !rel.hasAlliance) {
+          const existingBonds = await getBonds(ctx, rel.territory1Id, rel.territory2Id);
+          const hasTradeBond = existingBonds.some(b => b.bondType === "trade_bond");
+
+          if (!hasTradeBond) {
+            const territory1 = await ctx.db.get(rel.territory1Id);
+            const territory2 = await ctx.db.get(rel.territory2Id);
+
+            if (territory1 && territory2 && !(territory1 as any).isEliminated && !(territory2 as any).isEliminated) {
+              // Create mutual trade bonds (weaker than alliance)
+              await createBond(
+                ctx,
+                rel.territory1Id,
+                rel.territory2Id,
+                "trade_bond",
+                25,
+                `Our trade with ${territory2.name} has brought prosperity to both peoples.`,
+                false // Trade bonds are not hereditary
+              );
+
+              await createBond(
+                ctx,
+                rel.territory2Id,
+                rel.territory1Id,
+                "trade_bond",
+                25,
+                `Our trade with ${territory1.name} enriches us both.`,
+                false
+              );
+            }
+          }
+        }
+      }
+    }
+
+    // Process civilization bonds globally (decay over time)
+    await processBonds(ctx, newTick);
+
     // Update leaderboards (every year, at start of year)
     if (newMonth === 1) {
       const leaderboardEvents = await updateLeaderboards(ctx, newTick);
@@ -564,17 +1124,141 @@ export const processTick = internalMutation({
     }
 
     // =============================================
+    // PHASE 7: COMPETITION SYSTEM - ELIMINATION & VICTORY
+    // =============================================
+
+    // Ensure a match is running
+    const match = await ctx.db
+      .query("matches")
+      .withIndex("by_status", (q) => q.eq("status", "running"))
+      .first();
+
+    if (!match) {
+      // Start a new match if none exists
+      await startMatch(ctx as any, newTick);
+    }
+
+    // Refresh territories for competition checks
+    const competitionTerritories = await ctx.db.query("territories").collect();
+
+    // Check for eliminations (population < 5 for 12 consecutive ticks)
+    const eliminationResults = await checkElimination(ctx as any, competitionTerritories, newTick);
+    for (const elimination of eliminationResults) {
+      if (elimination.eliminated && elimination.description) {
+        await ctx.db.insert("events", {
+          tick: newTick,
+          type: "system",
+          territoryId: elimination.territoryId,
+          title: `ELIMINATION: ${elimination.territoryName}`,
+          description: elimination.description,
+          severity: "critical",
+          createdAt: Date.now(),
+        });
+
+        // Record as key moment
+        await recordKeyMoment(
+          ctx as any,
+          `${elimination.territoryName} Eliminated`,
+          elimination.description,
+          newTick
+        );
+      }
+    }
+
+    // Check for victory conditions
+    const activeMatch = await ctx.db
+      .query("matches")
+      .withIndex("by_status", (q) => q.eq("status", "running"))
+      .first();
+
+    if (activeMatch) {
+      const victoryResult = await checkVictoryConditions(
+        ctx as any,
+        competitionTerritories,
+        newTick
+      );
+
+      if (victoryResult.hasWinner) {
+        // End the match with the victory
+        await endMatch(ctx as any, activeMatch, victoryResult, competitionTerritories, newTick);
+
+        // Log victory event (already done in endMatch, but also add to events)
+        await ctx.db.insert("events", {
+          tick: newTick,
+          type: "system",
+          territoryId: victoryResult.winnerId,
+          title: `VICTORY!`,
+          description: victoryResult.description || "A civilization has won!",
+          severity: "critical",
+          createdAt: Date.now(),
+        });
+
+        // Pause the simulation
+        await ctx.db.patch(world._id, {
+          status: "paused",
+          speed: "paused",
+        });
+
+        return {
+          tick: newTick,
+          year: newYear,
+          month: newMonth,
+          victory: {
+            winner: victoryResult.winnerName,
+            type: victoryResult.victoryType,
+          },
+        };
+      }
+    }
+
+    // Record power scores every 3 ticks (quarterly) for history
+    if (newTick % 3 === 0) {
+      await recordPowerScores(ctx as any, newTick);
+    }
+
+    // Record key moments for significant events
+    // Check for first-place changes
+    const scoringRelationships = await ctx.db.query("relationships").collect();
+    const rankings = await getPowerRankings(ctx as any, competitionTerritories, scoringRelationships);
+    const activeTerritoryCount = competitionTerritories.filter(t => !t.isEliminated).length;
+
+    // Record if a new leader emerges (check every 12 ticks = yearly)
+    if (newTick % 12 === 0 && rankings.length > 0 && activeMatch) {
+      const leader = rankings[0];
+      if (!leader.isEliminated) {
+        await recordKeyMoment(
+          ctx as any,
+          `${leader.territoryName} leads`,
+          `${leader.territoryName} holds the lead with a power score of ${leader.powerScore}. ${activeTerritoryCount} civilizations remain.`,
+          newTick
+        );
+      }
+    }
+
+    // =============================================
     // SCHEDULE AI DECISIONS
     // =============================================
 
+    // Only schedule AI decisions for non-eliminated territories
     const agents = await ctx.db.query("agents").collect();
-    for (let i = 0; i < agents.length; i++) {
+    const eliminatedTerritoryIds = new Set(
+      competitionTerritories.filter(t => t.isEliminated).map(t => t._id.toString())
+    );
+
+    let decisionIndex = 0;
+    for (const agent of agents) {
+      // Skip eliminated territories
+      if (eliminatedTerritoryIds.has(agent.territoryId.toString())) {
+        continue;
+      }
+
       // Stagger by 2 seconds to avoid rate limits
-      const delay = i * 2000;
+      const delay = decisionIndex * 2000;
       await ctx.scheduler.runAfter(delay, internal.ai.decisions.makeDecision, {
-        agentId: agents[i]._id,
+        agentId: agent._id,
         tick: newTick,
       });
+      decisionIndex++;
     }
 
     return { tick: newTick, year: newYear, month: newMonth };

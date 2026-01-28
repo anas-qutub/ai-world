@@ -1,6 +1,7 @@
 import { Doc, Id } from "../_generated/dataModel";
 import { MutationCtx } from "../_generated/server";
 import { calculateArmyStrength, UNIT_TYPES } from "./military";
+import { recordMemory } from "./memory";
 
 // Clamp helper
 function clamp(value: number, min: number, max: number): number {
@@ -196,6 +197,35 @@ export async function startSiege(
     createdAt: Date.now(),
   });
 
+  // =============================================
+  // ORGANIC AI GROWTH - Record siege memories
+  // =============================================
+  const attackerAgent = await ctx.db
+    .query("agents")
+    .withIndex("by_territory", (q) => q.eq("territoryId", attacker.territoryId))
+    .first();
+  const defenderAgent = await ctx.db
+    .query("agents")
+    .withIndex("by_territory", (q) => q.eq("territoryId", defenderTerritoryId))
+    .first();
+
+  if (attackerAgent && territory) {
+    await recordMemory(ctx, attackerAgent._id, {
+      type: "war",
+      targetTerritoryId: defenderTerritoryId,
+      description: `We laid siege to ${territory.name}. Our armies surround their walls.`,
+      emotionalWeight: 25, // Confident but tense
+    });
+  }
+  if (defenderAgent && attackerTerritory) {
+    await recordMemory(ctx, defenderAgent._id, {
+      type: "war",
+      targetTerritoryId: attacker.territoryId,
+      description: `${attackerTerritory.name} has besieged us! Our walls are surrounded by enemy forces.`,
+      emotionalWeight: -55, // Fearful, under attack
+    });
+  }
+
   return { success: true, siegeId };
 }
 
@@ -243,6 +273,35 @@ export async function processSieges(
         severity: "positive",
         createdAt: Date.now(),
       });
+
+      // =============================================
+      // ORGANIC AI GROWTH - Record siege survival memories
+      // =============================================
+      const attackerAgent = await ctx.db
+        .query("agents")
+        .withIndex("by_territory", (q) => q.eq("territoryId", attacker.territoryId))
+        .first();
+      const defenderAgent = await ctx.db
+        .query("agents")
+        .withIndex("by_territory", (q) => q.eq("territoryId", defenderTerritory._id))
+        .first();
+
+      if (defenderAgent) {
+        await recordMemory(ctx, defenderAgent._id, {
+          type: "victory",
+          targetTerritoryId: attacker.territoryId,
+          description: `We outlasted the siege! The enemy ran out of supplies and retreated. Our walls held firm.`,
+          emotionalWeight: 60, // Relief and triumph
+        });
+      }
+      if (attackerAgent) {
+        await recordMemory(ctx, attackerAgent._id, {
+          type: "defeat",
+          targetTerritoryId: defenderTerritory._id,
+          description: `Our siege of ${defenderTerritory.name} failed. We ran out of supplies and had to retreat.`,
+          emotionalWeight: -45, // Shame and frustration
+        });
+      }
 
       continue;
     }
@@ -421,6 +480,35 @@ export async function assaultWalls(
       createdAt: Date.now(),
     });
 
+    // =============================================
+    // ORGANIC AI GROWTH - Record city capture memories
+    // =============================================
+    const attackerAgent = await ctx.db
+      .query("agents")
+      .withIndex("by_territory", (q) => q.eq("territoryId", attacker.territoryId))
+      .first();
+    const defenderAgent = await ctx.db
+      .query("agents")
+      .withIndex("by_territory", (q) => q.eq("territoryId", siege.defenderTerritoryId))
+      .first();
+
+    if (attackerAgent) {
+      await recordMemory(ctx, attackerAgent._id, {
+        type: "victory",
+        targetTerritoryId: siege.defenderTerritoryId,
+        description: `We stormed and captured ${defenderTerritory.name}! Their walls could not stop us. A glorious victory!`,
+        emotionalWeight: 80, // Major triumph
+      });
+    }
+    if (defenderAgent) {
+      await recordMemory(ctx, defenderAgent._id, {
+        type: "defeat",
+        targetTerritoryId: attacker.territoryId,
+        description: `${defenderTerritory.name} has fallen to the enemy! Our walls were breached, our people conquered. A day of shame.`,
+        emotionalWeight: -85, // Devastating loss
+      });
+    }
+
     return {
       success: true,
       outcome: `${defenderTerritory.name} captured!`,
@@ -441,6 +529,35 @@ export async function assaultWalls(
       severity: "positive",
       createdAt: Date.now(),
     });
+
+    // =============================================
+    // ORGANIC AI GROWTH - Record assault repelled memories
+    // =============================================
+    const attackerAgentRepelled = await ctx.db
+      .query("agents")
+      .withIndex("by_territory", (q) => q.eq("territoryId", attacker.territoryId))
+      .first();
+    const defenderAgentRepelled = await ctx.db
+      .query("agents")
+      .withIndex("by_territory", (q) => q.eq("territoryId", siege.defenderTerritoryId))
+      .first();
+
+    if (defenderAgentRepelled) {
+      await recordMemory(ctx, defenderAgentRepelled._id, {
+        type: "victory",
+        targetTerritoryId: attacker.territoryId,
+        description: `We repelled their assault on ${defenderTerritory.name}! The enemy suffered heavy casualties. Our walls hold strong!`,
+        emotionalWeight: 55, // Defensive victory
+      });
+    }
+    if (attackerAgentRepelled) {
+      await recordMemory(ctx, attackerAgentRepelled._id, {
+        type: "defeat",
+        targetTerritoryId: siege.defenderTerritoryId,
+        description: `Our assault on ${defenderTerritory.name} was repelled with heavy losses. The walls remain unbroken.`,
+        emotionalWeight: -50, // Painful setback
+      });
+    }
 
     return {
       success: false,

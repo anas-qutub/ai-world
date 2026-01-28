@@ -1,6 +1,8 @@
 import { internalMutation, query, MutationCtx } from "../_generated/server";
 import { v } from "convex/values";
 import { Doc, Id } from "../_generated/dataModel";
+import { recordMemory } from "./memory";
+import { modifyRulerTrust } from "./rulerLegitimacy";
 
 // =============================================
 // WAR NAME GENERATION
@@ -199,6 +201,35 @@ export async function startWarInternal(
       hasAlliance: false,
       warExhaustion: 0,
       warScore: 0,
+    });
+  }
+
+  // =============================================
+  // ORGANIC AI GROWTH - Record war declaration memories
+  // =============================================
+  const aggressorAgent = await ctx.db
+    .query("agents")
+    .withIndex("by_territory", (q) => q.eq("territoryId", aggressorId))
+    .first();
+  const defenderAgent = await ctx.db
+    .query("agents")
+    .withIndex("by_territory", (q) => q.eq("territoryId", defenderId))
+    .first();
+
+  if (aggressorAgent) {
+    await recordMemory(ctx, aggressorAgent._id, {
+      type: "war",
+      targetTerritoryId: defenderId,
+      description: `We declared war on ${defender.name}! ${warName} has begun. Cause: ${causeDescription}`,
+      emotionalWeight: 30, // Mixed emotions - war is serious but they chose it
+    });
+  }
+  if (defenderAgent) {
+    await recordMemory(ctx, defenderAgent._id, {
+      type: "war",
+      targetTerritoryId: aggressorId,
+      description: `${aggressor.name} declared war on us! ${warName} has begun. We must defend our people.`,
+      emotionalWeight: -45, // Negative - being attacked is traumatic
     });
   }
 
@@ -409,6 +440,97 @@ export const endWar = internalMutation({
         peaceOfferTerms: undefined,
       });
     }
+
+    // =============================================
+    // ORGANIC AI GROWTH - Record war ending memories
+    // =============================================
+    const aggressorAgent = await ctx.db
+      .query("agents")
+      .withIndex("by_territory", (q) => q.eq("territoryId", war.aggressorId))
+      .first();
+    const defenderAgent = await ctx.db
+      .query("agents")
+      .withIndex("by_territory", (q) => q.eq("territoryId", war.defenderId))
+      .first();
+
+    // Determine emotional weight based on outcome
+    const aggressorOutcome = args.outcome.toLowerCase();
+    const aggressorWon = aggressorOutcome.includes("aggressor victory") || aggressorOutcome.includes("attacker victory");
+    const defenderWon = aggressorOutcome.includes("defender victory") || aggressorOutcome.includes("defender wins");
+    const stalemate = aggressorOutcome.includes("stalemate") || aggressorOutcome.includes("draw") || aggressorOutcome.includes("exhaustion");
+
+    if (aggressorAgent && defender) {
+      let emotionalWeight: number;
+      let description: string;
+      let memoryType: "victory" | "defeat" | "war";
+
+      if (aggressorWon) {
+        emotionalWeight = 65;
+        memoryType = "victory";
+        description = `${war.name} ended in our victory against ${defender.name}! After ${durationText} and ${totalCasualties} casualties, we emerged triumphant.`;
+      } else if (defenderWon) {
+        emotionalWeight = -70;
+        memoryType = "defeat";
+        description = `${war.name} ended in our defeat against ${defender.name}. After ${durationText} and ${totalCasualties} casualties, we could not prevail.`;
+      } else {
+        emotionalWeight = -15;
+        memoryType = "war";
+        description = `${war.name} against ${defender.name} ended in stalemate. After ${durationText} and ${totalCasualties} casualties, neither side could claim victory.`;
+      }
+
+      await recordMemory(ctx, aggressorAgent._id, {
+        type: memoryType,
+        targetTerritoryId: war.defenderId,
+        description,
+        emotionalWeight,
+      });
+    }
+
+    if (defenderAgent && aggressor) {
+      let emotionalWeight: number;
+      let description: string;
+      let memoryType: "victory" | "defeat" | "war";
+
+      if (defenderWon) {
+        emotionalWeight = 70;
+        memoryType = "victory";
+        description = `${war.name} ended in our victory! We successfully defended against ${aggressor.name}. After ${durationText} and ${totalCasualties} casualties, our lands remain free.`;
+      } else if (aggressorWon) {
+        emotionalWeight = -75;
+        memoryType = "defeat";
+        description = `${war.name} ended in our defeat. ${aggressor.name} overwhelmed our defenses. After ${durationText} and ${totalCasualties} casualties, we were forced to yield.`;
+      } else {
+        emotionalWeight = -10;
+        memoryType = "war";
+        description = `${war.name} against ${aggressor.name} ended in stalemate. After ${durationText} and ${totalCasualties} casualties, neither side could break the other.`;
+      }
+
+      await recordMemory(ctx, defenderAgent._id, {
+        type: memoryType,
+        targetTerritoryId: war.aggressorId,
+        description,
+        emotionalWeight,
+      });
+    }
+
+    // =============================================
+    // RULER LEGITIMACY - Modify trust based on war outcome
+    // =============================================
+    // Was aggressor on offensive or defensive? (aggressor is always offensive)
+    // Defender is defensive
+
+    if (aggressorWon) {
+      // Aggressor won their offensive war
+      await modifyRulerTrust(ctx, war.aggressorId, "war_won");
+      // Defender lost a defensive war (worse for trust)
+      await modifyRulerTrust(ctx, war.defenderId, "war_lost_defensive");
+    } else if (defenderWon) {
+      // Defender won their defensive war (better for trust)
+      await modifyRulerTrust(ctx, war.defenderId, "war_won_defensive");
+      // Aggressor lost their offensive war
+      await modifyRulerTrust(ctx, war.aggressorId, "war_lost");
+    }
+    // Stalemate doesn't significantly affect trust
 
     return {
       success: true,

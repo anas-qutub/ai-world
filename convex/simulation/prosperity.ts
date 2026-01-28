@@ -1,6 +1,7 @@
 import { internalMutation, query, MutationCtx } from "../_generated/server";
 import { v } from "convex/values";
 import { Doc, Id } from "../_generated/dataModel";
+import { recordMemory } from "./memory";
 
 // =============================================
 // CONTINUOUS PROSPERITY SYSTEM
@@ -241,10 +242,49 @@ export async function updateProsperityTier(
     if (newTier === 5) {
       events.push(`A GOLDEN AGE begins in ${territory.name}! But with glory comes complacency...`);
     }
+
+    // =============================================
+    // ORGANIC AI GROWTH - Record prosperity milestone memories
+    // =============================================
+    const agent = await ctx.db
+      .query("agents")
+      .withIndex("by_territory", (q) => q.eq("territoryId", territoryId))
+      .first();
+
+    if (agent) {
+      const emotionalWeight = newTier === 5 ? 85 : 40 + newTier * 10; // Golden age is extra special
+      await recordMemory(ctx, agent._id, {
+        type: "victory",
+        description: newTier === 5
+          ? `A GOLDEN AGE has begun! Our civilization reaches its zenith. ${tierInfo.description}`
+          : `Our civilization has risen to ${tierInfo.name}! ${tierInfo.description}`,
+        emotionalWeight, // Strong positive memory
+      });
+    }
   } else if (newTier < oldTier) {
     const oldTierInfo = PROSPERITY_TIER_NAMES[oldTier];
     const newTierInfo = PROSPERITY_TIER_NAMES[newTier];
     events.push(`${territory.name} has fallen from ${oldTierInfo.name} to ${newTierInfo.name}!`);
+
+    // =============================================
+    // ORGANIC AI GROWTH - Record prosperity decline memories
+    // =============================================
+    const agent = await ctx.db
+      .query("agents")
+      .withIndex("by_territory", (q) => q.eq("territoryId", territoryId))
+      .first();
+
+    if (agent) {
+      const tierDrop = oldTier - newTier;
+      const emotionalWeight = -(30 + tierDrop * 15); // Bigger drops hurt more
+      await recordMemory(ctx, agent._id, {
+        type: "crisis",
+        description: oldTier === 5
+          ? `Our Golden Age has ended. We have fallen to ${newTierInfo.name}. The glory days are behind us.`
+          : `Our prosperity has declined from ${oldTierInfo.name} to ${newTierInfo.name}. Dark times may be ahead.`,
+        emotionalWeight,
+      });
+    }
   }
 
   // =============================================

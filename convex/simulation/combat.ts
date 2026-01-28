@@ -1,6 +1,9 @@
 import { Doc, Id } from "../_generated/dataModel";
 import { MutationCtx } from "../_generated/server";
 import { calculateArmyStrength, UNIT_TYPES, UnitType } from "./military";
+import { woundCharacter } from "./characters";
+import { recordMemory, MemoryType } from "./memory";
+import { createBond, shouldCreateBond } from "./bonds";
 
 // Clamp helper
 function clamp(value: number, min: number, max: number): number {
@@ -149,6 +152,32 @@ export async function resolveBattle(
       location?.name || "unknown location"
     ),
   });
+
+  // Characters can be wounded in battle (not killed directly)
+  // Generals have a chance to be wounded based on battle intensity
+  await woundCharactersInBattle(ctx, attacker.territoryId, attackerCasualties, winner === "defender", tick);
+  await woundCharactersInBattle(ctx, defender.territoryId, defenderCasualties, winner === "attacker", tick);
+
+  // =============================================
+  // ORGANIC AI GROWTH - Record battle memories
+  // =============================================
+  const attackerTerritory = await ctx.db.get(attacker.territoryId);
+  const defenderTerritory = await ctx.db.get(defender.territoryId);
+
+  if (attackerTerritory && defenderTerritory) {
+    await recordBattleMemories(
+      ctx,
+      attacker.territoryId,
+      defender.territoryId,
+      attackerTerritory.name,
+      defenderTerritory.name,
+      winner,
+      attackerCasualties,
+      defenderCasualties,
+      location?.name || "the battlefield",
+      tick
+    );
+  }
 
   return {
     winner,
@@ -329,6 +358,25 @@ export async function resolveBattleAgainstGarrison(
     description: `Attack on ${defenderTerritory.name}: ${winner === "attacker" ? "Successful" : winner === "defender" ? "Repelled" : "Inconclusive"}`,
   });
 
+  // =============================================
+  // ORGANIC AI GROWTH - Record battle memories
+  // =============================================
+  const attackerTerritory = await ctx.db.get(attacker.territoryId);
+  if (attackerTerritory) {
+    await recordBattleMemories(
+      ctx,
+      attacker.territoryId,
+      defenderTerritoryId,
+      attackerTerritory.name,
+      defenderTerritory.name,
+      winner,
+      attackerCasualties,
+      defenderPopLoss,
+      defenderTerritory.name,
+      tick
+    );
+  }
+
   return {
     winner,
     attackerLosses: attackerCasualties,
@@ -381,9 +429,44 @@ export async function updateWarStatus(
       warExhaustion: 0,
       trust: -50, // Still don't like each other
     });
+
+    // =============================================
+    // ORGANIC AI GROWTH - Record war exhaustion memories
+    // =============================================
+    const territory1 = await ctx.db.get(territory1Id);
+    const territory2 = await ctx.db.get(territory2Id);
+
+    // Both sides remember the exhausting war
+    const agent1 = await ctx.db
+      .query("agents")
+      .withIndex("by_territory", (q) => q.eq("territoryId", territory1Id))
+      .first();
+    const agent2 = await ctx.db
+      .query("agents")
+      .withIndex("by_territory", (q) => q.eq("territoryId", territory2Id))
+      .first();
+
+    if (agent1 && territory2) {
+      await recordMemory(ctx, agent1._id, {
+        type: "war",
+        targetTerritoryId: territory2Id,
+        description: `The war with ${territory2.name} ended in mutual exhaustion. Neither side could claim victory.`,
+        emotionalWeight: -20, // Negative but not devastating - no clear winner
+      });
+    }
+    if (agent2 && territory1) {
+      await recordMemory(ctx, agent2._id, {
+        type: "war",
+        targetTerritoryId: territory1Id,
+        description: `The war with ${territory1.name} ended in mutual exhaustion. Neither side could claim victory.`,
+        emotionalWeight: -20,
+      });
+    }
   } else if (Math.abs(newWarScore) >= 100) {
     // Decisive victory - loser forced to surrender
     const winnerId = newWarScore > 0 ? territory1Id : territory2Id;
+    const loserId = newWarScore > 0 ? territory2Id : territory1Id;
+
     await ctx.db.patch(relationship._id, {
       status: "tense",
       surrenderedTo: winnerId,
@@ -391,6 +474,38 @@ export async function updateWarStatus(
       warExhaustion: 0,
       trust: -75,
     });
+
+    // =============================================
+    // ORGANIC AI GROWTH - Record decisive war ending memories
+    // =============================================
+    const winnerTerritory = await ctx.db.get(winnerId);
+    const loserTerritory = await ctx.db.get(loserId);
+
+    const winnerAgent = await ctx.db
+      .query("agents")
+      .withIndex("by_territory", (q) => q.eq("territoryId", winnerId))
+      .first();
+    const loserAgent = await ctx.db
+      .query("agents")
+      .withIndex("by_territory", (q) => q.eq("territoryId", loserId))
+      .first();
+
+    if (winnerAgent && loserTerritory) {
+      await recordMemory(ctx, winnerAgent._id, {
+        type: "victory",
+        targetTerritoryId: loserId,
+        description: `We achieved decisive victory against ${loserTerritory.name}! They were forced to surrender.`,
+        emotionalWeight: 75, // Strong positive memory
+      });
+    }
+    if (loserAgent && winnerTerritory) {
+      await recordMemory(ctx, loserAgent._id, {
+        type: "defeat",
+        targetTerritoryId: winnerId,
+        description: `We suffered a crushing defeat against ${winnerTerritory.name}. We were forced to surrender.`,
+        emotionalWeight: -80, // Strong negative memory
+      });
+    }
   }
 }
 
@@ -510,4 +625,204 @@ export async function checkForBattles(
   }
 
   return battles;
+}
+
+// =============================================
+// CHARACTER WOUNDING IN BATTLE
+// =============================================
+
+/**
+ * Characters (especially generals) can be wounded in battle
+ * They don't die directly - they get wounded and need medication to heal
+ */
+async function woundCharactersInBattle(
+  ctx: MutationCtx,
+  territoryId: Id<"territories">,
+  casualties: number,
+  isLoser: boolean,
+  tick: number
+): Promise<void> {
+  // Get characters from this territory
+  const characters = await ctx.db
+    .query("characters")
+    .withIndex("by_territory", (q) => q.eq("territoryId", territoryId))
+    .filter((q) => q.eq(q.field("isAlive"), true))
+    .collect();
+
+  // Generals and rulers who participate in battle have a chance to be wounded
+  const combatants = characters.filter(
+    c => c.role === "general" || (c.role === "ruler" && c.traits.courage > 60)
+  );
+
+  for (const character of combatants) {
+    // Base wound chance increases with:
+    // - Higher casualties = more dangerous battle
+    // - Being on the losing side = more exposure
+    // - Higher courage = they fight in front lines
+    let woundChance = 0.05; // 5% base
+
+    // Casualty modifier (heavy casualties = dangerous battle)
+    if (casualties > 100) woundChance += 0.1;
+    if (casualties > 500) woundChance += 0.15;
+    if (casualties > 1000) woundChance += 0.2;
+
+    // Loser modifier (retreating is dangerous)
+    if (isLoser) woundChance += 0.15;
+
+    // Courage modifier (brave leaders fight in front)
+    if (character.traits.courage > 70) woundChance += 0.1;
+    if (character.traits.courage > 85) woundChance += 0.1;
+
+    // Already wounded = can be wounded again (wounds stack)
+    if (character.isWounded) woundChance += 0.1;
+
+    // Roll for wound
+    if (Math.random() < woundChance) {
+      // Calculate wound severity (20-80 typically, worse if already wounded)
+      const baseSeverity = 20 + Math.floor(Math.random() * 40);
+      const severityModifier = isLoser ? 15 : 0;
+      const casualtyModifier = Math.min(20, Math.floor(casualties / 100));
+      const severity = Math.min(90, baseSeverity + severityModifier + casualtyModifier);
+
+      await woundCharacter(ctx, character._id, severity, "battle", tick);
+    }
+  }
+}
+
+// =============================================
+// ORGANIC AI GROWTH - BATTLE MEMORY RECORDING
+// =============================================
+
+/**
+ * Record memories for both sides after a battle
+ * Major victories/defeats create strong emotional memories
+ * These memories can trigger emergent goals like "avenge_defeat"
+ */
+async function recordBattleMemories(
+  ctx: MutationCtx,
+  attackerTerritoryId: Id<"territories">,
+  defenderTerritoryId: Id<"territories">,
+  attackerName: string,
+  defenderName: string,
+  winner: "attacker" | "defender" | "draw",
+  attackerCasualties: number,
+  defenderCasualties: number,
+  locationName: string,
+  tick: number
+): Promise<void> {
+  // Get agents for both sides
+  const attackerAgent = await ctx.db
+    .query("agents")
+    .withIndex("by_territory", (q) => q.eq("territoryId", attackerTerritoryId))
+    .first();
+
+  const defenderAgent = await ctx.db
+    .query("agents")
+    .withIndex("by_territory", (q) => q.eq("territoryId", defenderTerritoryId))
+    .first();
+
+  // Determine battle significance based on casualties
+  const isMajorBattle = attackerCasualties + defenderCasualties > 50;
+  const isDevastatingBattle = attackerCasualties + defenderCasualties > 200;
+
+  // Calculate emotional weights
+  // Victories are positive, defeats are negative
+  // More casualties = stronger emotions
+  const casualtyWeight = Math.min(30, Math.floor((attackerCasualties + defenderCasualties) / 10));
+
+  if (attackerAgent) {
+    let memoryType: MemoryType;
+    let description: string;
+    let emotionalWeight: number;
+
+    if (winner === "attacker") {
+      memoryType = "victory";
+      description = isDevastatingBattle
+        ? `We achieved a GLORIOUS VICTORY against ${defenderName} at ${locationName}! Their forces were crushed!`
+        : isMajorBattle
+        ? `We won a significant battle against ${defenderName} at ${locationName}.`
+        : `We defeated ${defenderName}'s forces at ${locationName}.`;
+      emotionalWeight = 40 + casualtyWeight; // Positive
+    } else if (winner === "defender") {
+      memoryType = "defeat";
+      description = isDevastatingBattle
+        ? `We suffered a DEVASTATING DEFEAT at ${locationName}! ${defenderName} slaughtered our forces!`
+        : isMajorBattle
+        ? `We lost a major battle against ${defenderName} at ${locationName}. Many good warriors fell.`
+        : `Our attack on ${defenderName} at ${locationName} was repelled.`;
+      emotionalWeight = -(50 + casualtyWeight); // Negative - defeats hurt more
+    } else {
+      memoryType = "war";
+      description = `The battle at ${locationName} against ${defenderName} ended in a bloody stalemate.`;
+      emotionalWeight = -20; // Draws are slightly negative (wasted lives)
+    }
+
+    await recordMemory(ctx, attackerAgent._id, {
+      type: memoryType,
+      targetTerritoryId: defenderTerritoryId,
+      description,
+      emotionalWeight,
+    });
+
+    // Major defeats can create blood debt bonds
+    if (winner === "defender" && isDevastatingBattle) {
+      await createBond(
+        ctx,
+        attackerTerritoryId,
+        defenderTerritoryId,
+        "blood_debt",
+        50 + casualtyWeight,
+        `They slaughtered our warriors at ${locationName}. This debt will be repaid in blood.`,
+        true // Hereditary
+      );
+    }
+  }
+
+  if (defenderAgent) {
+    let memoryType: MemoryType;
+    let description: string;
+    let emotionalWeight: number;
+
+    if (winner === "defender") {
+      memoryType = "victory";
+      description = isDevastatingBattle
+        ? `We CRUSHED ${attackerName}'s invasion at ${locationName}! They will think twice before attacking again!`
+        : isMajorBattle
+        ? `We successfully defended against ${attackerName}'s attack at ${locationName}.`
+        : `We repelled ${attackerName}'s assault at ${locationName}.`;
+      emotionalWeight = 45 + casualtyWeight; // Defensive victories feel even better
+    } else if (winner === "attacker") {
+      memoryType = "defeat";
+      description = isDevastatingBattle
+        ? `${attackerName} DEVASTATED our forces at ${locationName}! So many lives lost!`
+        : isMajorBattle
+        ? `We failed to stop ${attackerName}'s attack at ${locationName}. Dark days for our people.`
+        : `${attackerName} defeated our defenders at ${locationName}.`;
+      emotionalWeight = -(55 + casualtyWeight); // Being invaded and losing is traumatic
+    } else {
+      memoryType = "war";
+      description = `We fought ${attackerName} to a standstill at ${locationName}.`;
+      emotionalWeight = -15; // Slightly negative
+    }
+
+    await recordMemory(ctx, defenderAgent._id, {
+      type: memoryType,
+      targetTerritoryId: attackerTerritoryId,
+      description,
+      emotionalWeight,
+    });
+
+    // Major defeats create blood debt for defender too
+    if (winner === "attacker" && isDevastatingBattle) {
+      await createBond(
+        ctx,
+        defenderTerritoryId,
+        attackerTerritoryId,
+        "blood_debt",
+        55 + casualtyWeight,
+        `${attackerName} invaded our lands and slaughtered our people at ${locationName}. We will NEVER forget.`,
+        true // Hereditary
+      );
+    }
+  }
 }
