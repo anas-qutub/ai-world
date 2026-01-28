@@ -1,5 +1,6 @@
 import { Doc, Id } from "../_generated/dataModel";
 import { MutationCtx } from "../_generated/server";
+import { getInfrastructureTradeBonus } from "./infrastructureSystem";
 
 // Base distances between continents (in ticks to travel)
 const TERRITORY_DISTANCES: Record<string, Record<string, number>> = {
@@ -93,11 +94,16 @@ export async function establishTradeRoute(
   }
 
   // Calculate distance
-  const distance = TERRITORY_DISTANCES[t1.name]?.[t2.name] || 10;
+  const baseDistance = TERRITORY_DISTANCES[t1.name]?.[t2.name] || 10;
+
+  // INTERCONNECTION: Infrastructure reduces travel time
+  const infraBonus = await getInfrastructureTradeBonus(ctx, territory1Id, territory2Id);
+  const distanceReduction = Math.floor(baseDistance * (infraBonus.travelTimeReduction / 100));
+  const distance = Math.max(1, baseDistance - distanceReduction);
 
   // Calculate base risk (modified by distance and relationship)
   const relationship = await findRelationship(ctx, territory1Id, territory2Id);
-  let baseRisk = 10 + distance * 2;
+  let baseRisk = 10 + baseDistance * 2;
   if (relationship?.status === "hostile" || relationship?.status === "at_war") {
     baseRisk += 50;
   } else if (relationship?.status === "tense") {
@@ -105,6 +111,9 @@ export async function establishTradeRoute(
   } else if (relationship?.status === "allied") {
     baseRisk -= 10;
   }
+
+  // INTERCONNECTION: Infrastructure reduces trade route risk
+  baseRisk = Math.max(0, baseRisk - infraBonus.riskReduction);
 
   const routeId = await ctx.db.insert("tradeRoutes", {
     territory1Id,
@@ -228,9 +237,14 @@ export async function processCaravans(
         // Calculate total value of delivered goods
         const totalValue = caravan.goods.reduce((sum, g) => sum + g.quantity * g.purchasePrice, 0);
 
+        // INTERCONNECTION: Infrastructure provides trade wealth bonus
+        const infraBonus = await getInfrastructureTradeBonus(ctx, caravan.originId, caravan.destinationId);
+        const wealthMultiplier = 1 + (infraBonus.wealthBonus / 100);
+        const adjustedValue = totalValue * 0.1 * wealthMultiplier;
+
         // Add wealth to destination from trade - no upper cap
         await ctx.db.patch(caravan.destinationId, {
-          wealth: destination.wealth + totalValue * 0.1,
+          wealth: destination.wealth + adjustedValue,
         });
 
         // Update trade route statistics

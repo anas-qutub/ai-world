@@ -4,6 +4,71 @@ import { calculateArmyStrength, UNIT_TYPES, UnitType } from "./military";
 import { woundCharacter } from "./characters";
 import { recordMemory, MemoryType } from "./memory";
 import { createBond, shouldCreateBond } from "./bonds";
+import { getInfrastructureDefenseBonus } from "./infrastructureSystem";
+
+/**
+ * INTERCONNECTION: Get espionage intelligence bonus for combat
+ * Having spies in enemy territory provides combat advantages
+ */
+async function getEspionageBonus(
+  ctx: MutationCtx,
+  attackerTerritoryId: Id<"territories">,
+  defenderTerritoryId: Id<"territories">
+): Promise<{ attackerBonus: number; defenderBonus: number; intelReport: string | null }> {
+  let attackerBonus = 0;
+  let defenderBonus = 0;
+  let intelReport: string | null = null;
+
+  // Check if attacker has spies in defender territory
+  const attackerSpies = await ctx.db
+    .query("spies")
+    .withIndex("by_owner", (q) => q.eq("ownerTerritoryId", attackerTerritoryId))
+    .filter((q) => q.and(
+      q.eq(q.field("targetTerritoryId"), defenderTerritoryId),
+      q.eq(q.field("status"), "active")
+    ))
+    .collect();
+
+  // Spies provide intelligence bonus based on skill and infiltration
+  for (const spy of attackerSpies) {
+    // Intel quality based on spy skill and infiltration
+    const intelQuality = (spy.skill + spy.infiltrationLevel) / 200;
+
+    // Combat bonus: knowing enemy positions, troop counts, etc.
+    attackerBonus += 5 * intelQuality;  // Up to 5% bonus per spy
+
+    // Check if spy has gathered military intel
+    const militaryIntel = spy.intelligence.find((i) =>
+      i.type === "gather_intel" && (i.info.includes("Military") || i.info.includes("soldiers") || i.info.includes("Defenses"))
+    );
+
+    if (militaryIntel && !intelReport) {
+      intelReport = `Intelligence from spy "${spy.codename}": ${militaryIntel.info}`;
+    }
+  }
+
+  // Check if defender has spies in attacker territory (knows attack is coming)
+  const defenderSpies = await ctx.db
+    .query("spies")
+    .withIndex("by_owner", (q) => q.eq("ownerTerritoryId", defenderTerritoryId))
+    .filter((q) => q.and(
+      q.eq(q.field("targetTerritoryId"), attackerTerritoryId),
+      q.eq(q.field("status"), "active")
+    ))
+    .collect();
+
+  for (const spy of defenderSpies) {
+    const intelQuality = (spy.skill + spy.infiltrationLevel) / 200;
+    // Knowing attack is coming helps defense
+    defenderBonus += 3 * intelQuality;  // Up to 3% bonus per spy
+  }
+
+  return {
+    attackerBonus: Math.min(25, attackerBonus),  // Cap at 25%
+    defenderBonus: Math.min(15, defenderBonus),  // Cap at 15%
+    intelReport,
+  };
+}
 
 // Clamp helper
 function clamp(value: number, min: number, max: number): number {
@@ -45,8 +110,13 @@ export async function resolveBattle(
   }
 
   // Calculate base strengths
-  const attackerStrength = calculateArmyStrength(attacker, false);
-  const defenderStrength = calculateArmyStrength(defender, true);
+  let attackerStrength = calculateArmyStrength(attacker, false);
+  let defenderStrength = calculateArmyStrength(defender, true);
+
+  // INTERCONNECTION: Espionage provides combat intelligence bonus
+  const espionageBonus = await getEspionageBonus(ctx, attacker.territoryId, defender.territoryId);
+  attackerStrength *= (1 + espionageBonus.attackerBonus / 100);
+  defenderStrength *= (1 + espionageBonus.defenderBonus / 100);
 
   // Get fortification bonus if defending in own territory
   const location = await ctx.db.get(locationId);
@@ -60,6 +130,12 @@ export async function resolveBattle(
 
     if (fortification && defender.territoryId === locationId) {
       fortificationBonus = 1 + fortification.defenseBonus;
+    }
+
+    // INTERCONNECTION: Infrastructure (walls, bridges) provides defense bonus
+    if (defender.territoryId === locationId) {
+      const infraBonus = await getInfrastructureDefenseBonus(ctx, locationId);
+      fortificationBonus += infraBonus / 100;  // Convert to multiplier
     }
   }
 
@@ -296,8 +372,42 @@ export async function resolveBattleAgainstGarrison(
   }
 
   // Garrison strength based on territory military and population
-  const garrisonStrength = defenderTerritory.military * 2 + defenderTerritory.population * 0.5;
-  const attackerStrength = calculateArmyStrength(attacker, false);
+  let garrisonStrength = defenderTerritory.military * 2 + defenderTerritory.population * 0.5;
+  let attackerStrength = calculateArmyStrength(attacker, false);
+
+  // INTERCONNECTION: Espionage provides combat intelligence bonus
+  const espionageBonus = await getEspionageBonus(ctx, attacker.territoryId, defenderTerritoryId);
+  attackerStrength *= (1 + espionageBonus.attackerBonus / 100);
+  garrisonStrength *= (1 + espionageBonus.defenderBonus / 100);
+
+  // INTERCONNECTION: Infrastructure provides garrison defense bonus
+  const infraDefenseBonus = await getInfrastructureDefenseBonus(ctx, defenderTerritoryId);
+  garrisonStrength *= (1 + infraDefenseBonus / 100);
+
+  // INTERCONNECTION: Disasters make territory vulnerable to attack
+  // Check for active disasters affecting defender
+  const activeDisasters = await ctx.db
+    .query("disasters")
+    .withIndex("by_territory", (q: any) => q.eq("territoryId", defenderTerritoryId))
+    .filter((q: any) => q.eq(q.field("status"), "active"))
+    .collect();
+
+  if (activeDisasters.length > 0) {
+    // Calculate total disaster penalty
+    let disasterPenalty = 0;
+    for (const disaster of activeDisasters) {
+      const severityPenalties: Record<string, number> = {
+        minor: 0.05,      // 5% penalty
+        moderate: 0.15,   // 15% penalty
+        major: 0.30,      // 30% penalty
+        catastrophic: 0.50 // 50% penalty
+      };
+      disasterPenalty += severityPenalties[disaster.severity] || 0;
+    }
+    // Cap at 60% penalty
+    disasterPenalty = Math.min(0.6, disasterPenalty);
+    garrisonStrength *= (1 - disasterPenalty);
+  }
 
   // Fortification bonus
   const fortification = await ctx.db

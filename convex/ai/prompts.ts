@@ -64,6 +64,21 @@ export interface CharacterContext {
   killCount?: number;
   battlesParticipated?: number;
   duelsWon?: number;
+  // Mental Health (NEW - for madness-affected decisions)
+  mentalHealth?: {
+    sanity: number;
+    trauma: number;
+    depression: number;
+    anxiety: number;
+    ptsd: boolean;
+    madness?: "paranoid" | "megalomaniac" | "violent" | "delusional" | "depressive" | "manic";
+    inTherapy: boolean;
+  };
+  // Addiction (NEW - affects decision-making)
+  addiction?: {
+    type: "alcohol" | "gambling" | "opium" | "other";
+    severity: "mild" | "moderate" | "severe" | "crippling";
+  };
 }
 
 export interface TensionContext {
@@ -211,6 +226,355 @@ export interface EngagementContext {
   };
 }
 
+// Espionage Intelligence Context - for spy-informed military decisions
+export interface EspionageContext {
+  activeSpies: number;
+  capturedSpies: number;
+  counterIntelligence: number;
+  intelligence: Array<{
+    targetTerritoryName: string;
+    intelType: string;
+    info: string;
+    tickGathered: number;
+    reliability: "low" | "medium" | "high";
+  }>;
+  knownEnemySpies: number;
+  // Education sabotage opportunities
+  sabotageTargets?: Array<{
+    territoryName: string;
+    hasLibrary: boolean;
+    hasUniversity: boolean;
+    hasSchools: number;
+    scholarCount: number;
+    educationVulnerability: number;  // 0-100, higher = easier to sabotage
+    hasSpy: boolean;  // Do we have a spy there?
+  }>;
+}
+
+// Sabotage Motivation Context - why would we sabotage?
+export interface SabotageMotiveContext {
+  pressure: number;  // 0-100, how motivated we are to sabotage
+  topMotives: Array<{
+    reason: string;
+    intensity: number;  // 0-100
+  }>;
+  suggestedTargets: Array<{
+    name: string;
+    pressure: number;
+    reason: string;
+    suggestions: string[];
+  }>;
+}
+
+// Religion Context - faith influences how rulers think and decide
+export interface ReligionContext {
+  stateReligion?: {
+    name: string;
+    deity: string;
+    beliefs: string[];
+    practices: string[];
+    tolerance: number;
+  };
+  rulerPiety: number;
+  templeCount: number;
+  priestCount: number;
+  averagePopulationPiety: number;
+}
+
+// Weather Context - current conditions affecting decisions
+export interface WeatherContext {
+  currentWeather: string;
+  temperature: number;
+  isExtreme: boolean;
+  farmingModifier: number;
+  militaryModifier: number;
+  travelModifier: number;
+  moodModifier: number;
+  expectedDuration: number; // ticks until change
+}
+
+// Disaster Context - active disasters and recovery
+export interface DisasterContext {
+  activeDisasters: Array<{
+    type: string;
+    severity: string;
+    casualties: number;
+    buildingsDestroyed: number;
+    recoveryProgress: number;
+  }>;
+  recentDisasters: Array<{
+    type: string;
+    tick: number;
+  }>;
+  disasterRisk: number; // 0-100
+}
+
+// Infrastructure Context - built structures and their effects
+export interface InfrastructureContext {
+  infrastructure: Array<{
+    type: string;
+    level: number;
+    condition: number;
+    isUnderConstruction: boolean;
+    constructionProgress?: number;
+    connectsTo?: string;
+  }>;
+  totalBonuses: {
+    tradeBonus: number;
+    defenseBonus: number;
+    travelSpeed: number;
+    waterAccess: number;
+  };
+}
+
+// Marriage & Dynasty Context - succession and alliances
+export interface DynastyContext {
+  currentDynasty?: {
+    name: string;
+    generations: number;
+    prestige: number;
+    inheritanceRule: string;
+  };
+  successionStatus: {
+    hasHeir: boolean;
+    heirName?: string;
+    heirAge?: number;
+    successionRisk: number; // 0-100, risk of crisis
+    rivalClaimants: number;
+  };
+  marriageOpportunities: Array<{
+    characterName: string;
+    targetTerritory: string;
+    allianceValue: number;
+    politicalBenefit: string;
+  }>;
+  activeMarriages: number;
+  politicalAlliances: number; // via marriage
+}
+
+// Romance Context - love affairs and their consequences
+export interface RomanceContext {
+  activeRomances: Array<{
+    person1: string;
+    person2: string;
+    type: string; // courtship, romance, affair
+    isSecret: boolean;
+    isAdulterous: boolean;
+    scandalRisk: number;
+  }>;
+  eligibleBachelors: number;
+  eligibleMaidens: number;
+  recentScandals: string[];
+}
+
+// Friendship Context - character bonds
+export interface FriendshipContext {
+  notableFriendships: Array<{
+    character1: string;
+    character2: string;
+    type: string; // friend, close_friend, best_friend, sworn_brother
+    sharedExperiences: string[];
+  }>;
+  swornBrotherhoodsCount: number;
+  isolatedCharacters: string[]; // characters with no friends
+}
+
+// Mental Health Context - psychological state of characters
+export interface MentalHealthContext {
+  troubledCharacters: Array<{
+    name: string;
+    role: string;
+    issues: {
+      sanity: number;
+      trauma: number;
+      depression: number;
+      hasPTSD: boolean;
+      madnessType?: string;
+    };
+    needsTreatment: boolean;
+  }>;
+  hasHealingSanctuary: boolean;
+  averageMorale: number;
+  recentTraumas: string[];
+}
+
+// Addiction Context - substance abuse problems
+export interface AddictionContext {
+  addictedCharacters: Array<{
+    name: string;
+    role: string;
+    addictionType: string;
+    severity: string;
+    functionalityImpact: number;
+    wealthDrain: number;
+  }>;
+  substancesAvailable: string[];
+  hasProhibition: boolean;
+}
+
+// War Demographics Context - who can fight
+export interface WarDemographicsContext {
+  fightingPopulation: {
+    eligibleMen: number;
+    currentSoldiers: number;
+    reserves: number;
+    percentageOfPopulation: number;
+  };
+  warCasualties: {
+    recentDeaths: number;
+    widows: number;
+    orphans: number;
+    disabledVeterans: number;
+  };
+  manpowerStatus: string; // "abundant", "adequate", "strained", "critical"
+  canConscriptMore: boolean;
+}
+
+// Gender Dynamics Context - social roles
+export interface GenderContext {
+  currentRoles: {
+    womenCanWork: boolean;
+    womenCanOwn: boolean;
+    womenCanRule: boolean;
+    womenCanFight: boolean;
+    progressLevel: number; // 0-100
+  };
+  workforceImpact: {
+    currentLaborPool: number;
+    potentialIfProgressive: number;
+    restrictionCost: number; // lost productivity
+  };
+  socialTension: number; // 0-100, tension from gender issues
+}
+
+// Expedition Context - exploration status
+export interface ExpeditionContext {
+  activeExpeditions: Array<{
+    direction: string;
+    leaderName?: string;
+    explorerCount: number;
+    soldierCount: number;
+    status: string;
+    daysUntilReturn: number;
+    discoveries: string[];
+  }>;
+  unexploredDirections: string[];
+  totalDiscoveries: number;
+}
+
+// Trade Context - economic activity
+export interface TradeContext {
+  activeTradeRoutes: Array<{
+    partnerTerritory: string;
+    goods: string;
+    profitability: number;
+    isActive: boolean;
+  }>;
+  caravans: {
+    inTransit: number;
+    recentArrivals: number;
+    recentRaids: number;
+  };
+  marketPrices: {
+    food: number;
+    goods: number;
+    luxuries: number;
+    trend: string; // "rising", "stable", "falling"
+  };
+}
+
+// Disease Context - health crises
+export interface DiseaseContext {
+  activeOutbreaks: Array<{
+    diseaseName: string;
+    severity: string;
+    infected: number;
+    deaths: number;
+    spreadRate: number;
+  }>;
+  diseaseRisk: {
+    level: number; // 0-100
+    factors: string[];
+  };
+  quarantineActive: boolean;
+  healerCount: number;
+}
+
+// Rebellion Context - internal unrest
+export interface RebellionContext {
+  factionUnrest: Array<{
+    factionName: string;
+    unrestLevel: number;
+    demands: string[];
+    willingness_to_revolt: number;
+  }>;
+  activeRebellions: Array<{
+    factionName: string;
+    strength: number;
+    controlledAreas: string[];
+  }>;
+  overallStability: number; // 0-100
+  recentGrievances: string[];
+}
+
+// Ruler Legitimacy Context - political support
+export interface LegitimacyContext {
+  ruler: {
+    name: string;
+    legitimacyScore: number; // 0-100
+    popularSupport: number;
+    nobleSupport: number;
+    militarySupport: number;
+  };
+  legitimacySources: string[]; // "birthright", "conquest", "election", etc.
+  threats: string[]; // "rival claimant", "foreign backed", etc.
+  overthrowRisk: number; // 0-100
+  recentActions: {
+    positive: string[];
+    negative: string[];
+  };
+}
+
+// Economy Context - treasury, taxes, and economic health
+export interface EconomyContext {
+  treasury: {
+    goldCoins: number;
+    silverCoins: number;
+    copperCoins: number;
+    totalWealth: number; // Normalized value
+    totalDebt: number;
+    creditRating: number; // 0-100
+    inflationRate: number; // Percentage
+    debasementLevel: number; // 0-100 (currency devaluation)
+    economicPhase: "barter" | "commodity" | "coined" | "banking" | "paper" | "modern";
+    lastMonthBalance: number; // Income - Expenses
+  };
+  taxes: {
+    landTaxRate: number;
+    tradeTaxRate: number;
+    pollTaxRate: number;
+    luxuryTaxRate: number;
+    collectionEfficiency: number;
+    taxEvaders: number; // Percentage evading
+    happinessImpact: number; // How taxes affect mood
+  };
+  laborMarket: {
+    unskilledWage: number;
+    skilledWage: number;
+    unemployment: number; // Percentage
+    workConditions: "harsh" | "poor" | "fair" | "good" | "excellent";
+  };
+  activeLoans: Array<{
+    lenderType: "merchant" | "noble" | "temple" | "foreign" | "bank";
+    amount: number;
+    interestRate: number;
+    monthsRemaining: number;
+  }>;
+  economicHealth: "collapsing" | "struggling" | "stable" | "growing" | "booming";
+  bankCount: number;
+  priceControls: string[]; // Active price controls
+}
+
 export const AVAILABLE_ACTIONS = [
   // === BASIC SURVIVAL ACTIONS ===
   {
@@ -243,6 +607,63 @@ export const AVAILABLE_ACTIONS = [
     description: "Prioritize gathering and storing wood specifically for winter heating",
     effects: "+1 Happiness (feeling prepared), +0.5 Knowledge (survival skills)",
   },
+
+  // === WATER & SANITATION ===
+  {
+    id: "dig_well",
+    name: "Dig a Well",
+    description: "Dig a well to provide reliable water supply. CRITICAL for survival - people die in days without water!",
+    effects: "+1 Well (provides 50 water/tick), -10 Wood, -5 Wealth. Water is life!",
+  },
+  {
+    id: "build_latrine",
+    name: "Build Latrine",
+    description: "Build latrines to improve sanitation and prevent disease",
+    effects: "+1 Latrine (handles 10 waste), -5 Wood. Poor sanitation spreads disease!",
+  },
+  {
+    id: "build_sewer",
+    name: "Build Sewer System",
+    description: "Construct advanced sewer system for large population",
+    effects: "+100 Waste Capacity, -15 Wood, -20 Wealth. Major sanitation improvement!",
+  },
+
+  // === CLOTHING & PROTECTION ===
+  {
+    id: "make_clothing",
+    name: "Make Clothing",
+    description: "Craft clothing to protect from cold. Proper clothing reduces exposure deaths by 70%!",
+    effects: "+10 Clothing, -3 Wealth. Essential for winter survival!",
+  },
+
+  // === FOOD PRESERVATION ===
+  {
+    id: "build_smokehouse",
+    name: "Build Smokehouse",
+    description: "Build a smokehouse to preserve meat and fish for winter",
+    effects: "+1 Smokehouse (preserves 50 food), -20 Wood. Preserved food lasts 10x longer!",
+  },
+  {
+    id: "gather_salt",
+    name: "Gather Salt",
+    description: "Collect salt for preserving food. Coastal areas yield more salt.",
+    effects: "+5-10 Salt. Salt preserves food and prevents spoilage.",
+  },
+
+  // === MEDICINE & HEALING ===
+  {
+    id: "gather_herbs",
+    name: "Gather Medicinal Herbs",
+    description: "Collect healing herbs from the wilderness. More available in spring/summer.",
+    effects: "+10-15 Herbs (varies by season). Herbs cure sick population!",
+  },
+  {
+    id: "train_healer",
+    name: "Train Healer",
+    description: "Train someone in the healing arts to treat the sick",
+    effects: "Creates healer character. Healers add +30% healing success!",
+  },
+
   {
     id: "build_shelter",
     name: "Build Shelter",
@@ -512,6 +933,47 @@ export const AVAILABLE_ACTIONS = [
   },
 
   // =============================================
+  // GUT FEELING - INSTINCT-BASED DECISIONS
+  // =============================================
+  // These are ruler decisions based on intuition about what their people need
+  {
+    id: "harden_people",
+    name: "Harden the People",
+    description: "If you feel your people are soft or weak, institute rigorous training and conditioning programs. Mandatory physical training, endurance challenges, and survival exercises for all.",
+    effects: "-15 Happiness (harsh training), -10 Wealth (resources), +10 Military potential over time, +stronger workforce. Population becomes more resilient to hardship.",
+  },
+  {
+    id: "strengthen_bloodline",
+    name: "Strengthen the Bloodline",
+    description: "If you feel training won't fix weakness, focus on the next generation. The ruler should sire many children with the strongest, healthiest partners to create a more capable ruling line.",
+    effects: "Ruler has multiple children. +population growth. Children inherit stronger traits. May cause marriage/romance complications. Costs wealth (supporting children).",
+  },
+  {
+    id: "spartan_upbringing",
+    name: "Spartan Youth Program",
+    description: "Raise children from young age with harsh discipline, physical training, and military education to create a warrior generation.",
+    effects: "-20 Happiness, +children with high courage/strength traits. Takes years to see results. Creates loyal, capable warriors.",
+  },
+  {
+    id: "selective_marriages",
+    name: "Arrange Strategic Marriages",
+    description: "If you believe your bloodline needs strengthening, arrange marriages with the strongest, wisest, or most capable families.",
+    effects: "Children gain better trait potential. May improve or damage relations with marriage families. Costs dowries.",
+  },
+  {
+    id: "cull_the_weak",
+    name: "Cull the Weak (Ruthless)",
+    description: "A dark choice: exile or abandon those who cannot contribute. Reduces burden on resources but damages morale and your legacy.",
+    effects: "-Population (weak/elderly), +Food surplus, -30 Happiness, -20 Honor. Your people will remember this cruelty.",
+  },
+  {
+    id: "trust_instincts",
+    name: "Follow Your Gut",
+    description: "Make a decision purely based on instinct without rational analysis. Sometimes rulers just KNOW what their people need.",
+    effects: "Effect varies. Describe in reasoning what your gut tells you to do. The simulation will interpret your instinct.",
+  },
+
+  // =============================================
   // DEEP SIMULATION - MILITARY ACTIONS
   // =============================================
   {
@@ -561,6 +1023,52 @@ export const AVAILABLE_ACTIONS = [
   },
 
   // =============================================
+  // MILITARY EDUCATION TARGETING (During War)
+  // =============================================
+  {
+    id: "raze_enemy_library",
+    name: "Raze Enemy Library (Warfare)",
+    description: "During war, specifically target and destroy the enemy's library. Destroy their accumulated knowledge forever.",
+    effects: "Library burned, -30 knowledge. Creates lasting hatred. Only usable during war.",
+    requiresTarget: true,
+  },
+  {
+    id: "capture_enemy_scholars",
+    name: "Capture Enemy Scholars (Warfare)",
+    description: "During war, capture enemy scholars and bring them back as prisoners to work for you.",
+    effects: "Remove 1-3 scholars from enemy, they become YOUR scholars. +10 knowledge for you.",
+    requiresTarget: true,
+  },
+  {
+    id: "loot_scrolls_and_texts",
+    name: "Loot Scrolls and Texts (Warfare)",
+    description: "After victory, systematically loot all valuable texts and scrolls from the defeated territory.",
+    effects: "Enemy loses -15 knowledge, YOU gain +10 knowledge. Requires military victory.",
+    requiresTarget: true,
+  },
+  {
+    id: "execute_enemy_teachers",
+    name: "Execute Enemy Teachers (Warfare - Brutal)",
+    description: "Brutally execute enemy teachers and scholars to cripple their education permanently. A war crime that will be remembered.",
+    effects: "Kill all educators. -40 knowledge, -30 happiness for enemy. YOU suffer -20 influence (atrocity). Creates blood feud.",
+    requiresTarget: true,
+  },
+  {
+    id: "burn_enemy_schools",
+    name: "Burn Enemy Schools (Warfare)",
+    description: "During war, burn down enemy schools to deny them future skilled workers.",
+    effects: "All schools destroyed. Children have nowhere to learn. Long-term civilizational damage.",
+    requiresTarget: true,
+  },
+  {
+    id: "demand_scholars_as_tribute",
+    name: "Demand Scholars as Tribute (Diplomacy)",
+    description: "Demand that a weaker civilization send you their best scholars as tribute.",
+    effects: "If they comply, gain 2-3 scholars and +8 knowledge. They lose expertise. May refuse if proud.",
+    requiresTarget: true,
+  },
+
+  // =============================================
   // ORGANIC KNOWLEDGE PROGRESSION ACTIONS
   // Technologies emerge organically when your people develop practical skills.
   // Instead of "researching" technology, you encourage skill practice.
@@ -602,6 +1110,615 @@ export const AVAILABLE_ACTIONS = [
     name: "Establish Academy",
     description: "Build a center of learning to spread knowledge faster",
     effects: "Creates academy building. +skill gain rate. Requires writing technology.",
+  },
+
+  // =============================================
+  // EDUCATION & KNOWLEDGE TRANSFER
+  // New generations can learn from schools/libraries instead of
+  // rediscovering everything through crisis and experience!
+  // =============================================
+  {
+    id: "establish_school",
+    name: "Establish School",
+    description: "Build a school to educate children and young adults. Schools teach literacy, mathematics, and practical skills.",
+    effects: "Creates school. Children learn skills 3x faster than trial-and-error. Requires 2+ teachers, costs 20 wealth, 15 wood. New generation gains knowledge!",
+  },
+  {
+    id: "build_library",
+    name: "Build Library",
+    description: "Construct a library to store and preserve knowledge. Literate people can study here to improve skills.",
+    effects: "Creates library. Stores collective knowledge. Scholars can self-study up to skill level 60. Costs 30 wealth, 20 wood. Requires scribes.",
+  },
+  {
+    id: "establish_university",
+    name: "Establish University",
+    description: "Found a university for advanced learning. Produces scholars, engineers, and physicians.",
+    effects: "Creates university. Advanced education up to skill 75. Requires existing schools, 50+ wealth, high literacy. Breakthrough chance +25%!",
+  },
+  {
+    id: "assign_apprentice",
+    name: "Assign Apprentice",
+    description: "Have a master craftsman train a young person in their trade. Apprentices learn faster than schools!",
+    effects: "Apprentice learns master's skills. Can reach 90% of master's level. Costs 5 wealth. Specify master's profession in reasoning.",
+  },
+  {
+    id: "hire_teacher",
+    name: "Hire Teacher",
+    description: "Recruit an educated person to teach at a school or privately tutor children.",
+    effects: "Teacher teaches 10-20 students. Students gain +1 skill/tick in taught subjects. Teacher needs literacy 50+.",
+  },
+  {
+    id: "sponsor_scholar",
+    name: "Sponsor Scholar",
+    description: "Provide wealth and resources for a scholar to dedicate themselves to learning and research.",
+    effects: "Scholar studies full-time. +5 knowledge/tick. Can discover new technologies. Costs 10 wealth/tick.",
+  },
+  {
+    id: "copy_scrolls",
+    name: "Copy Ancient Scrolls",
+    description: "Have scribes copy important texts to preserve and spread knowledge.",
+    effects: "+10 to library scrolls. Knowledge becomes harder to lose. Requires scribes with literacy 40+.",
+  },
+  {
+    id: "establish_trade_school",
+    name: "Establish Trade School",
+    description: "Build a school focused on practical skills: smithing, carpentry, masonry, tailoring.",
+    effects: "Creates trade school. Workers learn crafts 2x faster. Essential for building skilled workforce!",
+  },
+
+  // =============================================
+  // EDUCATION SABOTAGE & COVERT DISRUPTION
+  // Sneaky ways to cripple rival civilizations' knowledge systems
+  // =============================================
+  {
+    id: "burn_enemy_library",
+    name: "Burn Enemy Library (Espionage)",
+    description: "Send agents to burn down a rival's library, destroying generations of accumulated knowledge.",
+    effects: "Target loses 25 knowledge, library destroyed. High risk of detection (40%) and war (30%). Requires spy.",
+    requiresTarget: true,
+  },
+  {
+    id: "sabotage_enemy_school",
+    name: "Sabotage Enemy School (Espionage)",
+    description: "Damage a rival's school to disrupt their education for months.",
+    effects: "Target school quality -30%, students scattered. Moderate detection risk (30%).",
+    requiresTarget: true,
+  },
+  {
+    id: "assassinate_enemy_scholar",
+    name: "Assassinate Enemy Scholar (Espionage)",
+    description: "Eliminate a key scholar, erasing irreplaceable expertise from their civilization.",
+    effects: "Kill 1 scholar/teacher, -15 knowledge. High detection (50%) and war risk (40%).",
+    requiresTarget: true,
+  },
+  {
+    id: "steal_enemy_scrolls",
+    name: "Steal Enemy Scrolls (Espionage)",
+    description: "Steal valuable texts and bring them back to enrich your own knowledge.",
+    effects: "Target loses 10 knowledge, YOU gain +5 knowledge. Moderate risk.",
+    requiresTarget: true,
+  },
+  {
+    id: "spread_misinformation",
+    name: "Spread Misinformation (Espionage)",
+    description: "Introduce false knowledge that will corrupt their teachings and set back their progress.",
+    effects: "Target's knowledge slowly degrades, school quality drops. Low detection (20%). Subtle but effective.",
+    requiresTarget: true,
+  },
+  {
+    id: "poison_enemy_teachers",
+    name: "Poison Enemy Teachers (Espionage)",
+    description: "Poison teachers to incapacitate or kill their educators.",
+    effects: "1-3 teachers incapacitated/killed, -12 knowledge. High detection (45%) and war risk (35%).",
+    requiresTarget: true,
+  },
+  {
+    id: "bribe_scholar_to_defect",
+    name: "Bribe Scholar to Defect (Espionage)",
+    description: "Offer wealth and status to lure a rival's best scholar to join your civilization.",
+    effects: "If successful, gain a scholar and +8 knowledge. Target loses expertise. Costs 20 wealth.",
+    requiresTarget: true,
+  },
+  {
+    id: "destroy_enemy_university",
+    name: "Destroy Enemy University (Espionage)",
+    description: "Major operation to destroy a rival's university, crippling advanced learning for years.",
+    effects: "University destroyed, -40 knowledge, -30 happiness. Very high risk. Near-certain war if caught.",
+    requiresTarget: true,
+  },
+  {
+    id: "kidnap_enemy_apprentices",
+    name: "Kidnap Enemy Apprentices (Espionage)",
+    description: "Abduct promising young apprentices to work for your civilization instead.",
+    effects: "Remove 1-3 apprentices from target. -5 knowledge, -20 happiness for target.",
+    requiresTarget: true,
+  },
+  {
+    id: "incite_student_riot",
+    name: "Incite Student Riot (Espionage)",
+    description: "Secretly encourage students to riot against their teachers and institutions.",
+    effects: "Target's happiness -10, schools temporarily disrupted. Low-moderate risk.",
+    requiresTarget: true,
+  },
+  {
+    id: "corrupt_enemy_curriculum",
+    name: "Corrupt Enemy Curriculum (Espionage)",
+    description: "Subtly alter their teachings to include flawed methods and false information.",
+    effects: "Gradual knowledge decay, -12 knowledge. Very low detection (15%). Long-term damage.",
+    requiresTarget: true,
+  },
+  {
+    id: "infiltrate_enemy_academy",
+    name: "Infiltrate Enemy Academy (Espionage)",
+    description: "Plant a long-term agent in their academy for continuous disruption and intelligence.",
+    effects: "Ongoing slow knowledge drain. Agent provides intel. High initial difficulty but low ongoing risk.",
+    requiresTarget: true,
+  },
+
+  // =============================================
+  // ECONOMIC SABOTAGE
+  // =============================================
+  {
+    id: "poison_enemy_crops",
+    name: "Poison Enemy Crops (Sabotage)",
+    description: "Introduce crop disease or salt their fields to ruin harvests for seasons.",
+    effects: "-25 food, -10 happiness. 30% detection, 25% war risk.",
+    requiresTarget: true,
+  },
+  {
+    id: "contaminate_enemy_water",
+    name: "Contaminate Water Supply (Sabotage)",
+    description: "Poison wells and rivers causing widespread sickness.",
+    effects: "-20 happiness, -5 population. Disease outbreak. 40% detection, 40% war risk.",
+    requiresTarget: true,
+  },
+  {
+    id: "counterfeit_currency",
+    name: "Counterfeit Currency (Sabotage)",
+    description: "Flood their markets with fake coins causing economic chaos.",
+    effects: "-20 wealth, -10 happiness. Inflation. Requires spy. 35% detection.",
+    requiresTarget: true,
+  },
+  {
+    id: "burn_enemy_granaries",
+    name: "Burn Enemy Granaries (Sabotage)",
+    description: "Set fire to their food storage facilities.",
+    effects: "-30 food, -15 happiness. 50% detection, 35% war risk.",
+    requiresTarget: true,
+  },
+  {
+    id: "sabotage_enemy_mines",
+    name: "Sabotage Enemy Mines (Sabotage)",
+    description: "Collapse or flood their mining operations.",
+    effects: "-15 wealth, -3 population. 40% detection, 30% war risk.",
+    requiresTarget: true,
+  },
+  {
+    id: "burn_enemy_market",
+    name: "Burn Enemy Market (Sabotage)",
+    description: "Burn down marketplaces and trade infrastructure.",
+    effects: "-20 wealth, -10 happiness. 45% detection, 30% war risk.",
+    requiresTarget: true,
+  },
+  {
+    id: "introduce_pests",
+    name: "Introduce Pests (Sabotage)",
+    description: "Release locusts, rats, or other pests to destroy crops.",
+    effects: "-20 food. Low detection (20%), low war risk (15%). Subtle but effective.",
+    requiresTarget: true,
+  },
+  {
+    id: "bribe_enemy_merchants",
+    name: "Bribe Enemy Merchants (Sabotage)",
+    description: "Pay merchants to overcharge and exploit their population.",
+    effects: "-10 wealth, -15 happiness. Requires spy. 25% detection.",
+    requiresTarget: true,
+  },
+  {
+    id: "steal_trade_secrets",
+    name: "Steal Trade Secrets (Sabotage)",
+    description: "Copy their production methods and trade knowledge.",
+    effects: "Target -5 technology, YOU gain +5 knowledge, +3 tech. Requires spy.",
+    requiresTarget: true,
+  },
+  {
+    id: "disrupt_enemy_caravans",
+    name: "Disrupt Enemy Caravans (Sabotage)",
+    description: "Attack or misdirect trade caravans.",
+    effects: "-15 wealth. 40% detection, 20% war risk.",
+    requiresTarget: true,
+  },
+
+  // =============================================
+  // MILITARY SABOTAGE
+  // =============================================
+  {
+    id: "poison_army_supplies",
+    name: "Poison Army Supplies (Sabotage)",
+    description: "Contaminate military food and water supplies.",
+    effects: "-20 military. Army sickness. Requires spy. 45% detection, 50% war risk.",
+    requiresTarget: true,
+  },
+  {
+    id: "sabotage_enemy_weapons",
+    name: "Sabotage Enemy Weapons (Sabotage)",
+    description: "Weaken swords, dull blades, damage bows before battle.",
+    effects: "-15 military. Weapon quality drops. Requires spy. 35% detection.",
+    requiresTarget: true,
+  },
+  {
+    id: "steal_battle_plans",
+    name: "Steal Battle Plans (Sabotage)",
+    description: "Copy their military strategies and troop positions.",
+    effects: "YOU gain military advantage. Requires spy. 40% detection.",
+    requiresTarget: true,
+  },
+  {
+    id: "assassinate_enemy_general",
+    name: "Assassinate Enemy General (Sabotage)",
+    description: "Kill their top military commander.",
+    effects: "-25 military. Army disorganized. Requires spy. 55% detection, 60% war risk.",
+    requiresTarget: true,
+  },
+  {
+    id: "incite_desertion",
+    name: "Incite Desertion (Sabotage)",
+    description: "Spread fear and encourage soldiers to flee.",
+    effects: "-15 military. Mass desertion. Requires spy. 30% detection.",
+    requiresTarget: true,
+  },
+  {
+    id: "spread_camp_disease",
+    name: "Spread Camp Disease (Sabotage)",
+    description: "Introduce plague into their military camps.",
+    effects: "-30 military, -5 population. Devastating. Requires spy. 35% detection, 45% war risk.",
+    requiresTarget: true,
+  },
+  {
+    id: "sabotage_enemy_fortifications",
+    name: "Sabotage Enemy Fortifications (Sabotage)",
+    description: "Secretly weaken walls and defenses before siege.",
+    effects: "-10 military. Walls weakened. Requires spy. 40% detection.",
+    requiresTarget: true,
+  },
+  {
+    id: "burn_enemy_armory",
+    name: "Burn Enemy Armory (Sabotage)",
+    description: "Destroy weapon and armor storage.",
+    effects: "-20 military. Can't equip new soldiers. 50% detection, 40% war risk.",
+    requiresTarget: true,
+  },
+  {
+    id: "disable_siege_equipment",
+    name: "Disable Siege Equipment (Sabotage)",
+    description: "Break catapults, battering rams, siege towers.",
+    effects: "-10 military. Siege capability disabled. Requires spy. 45% detection.",
+    requiresTarget: true,
+  },
+  {
+    id: "bribe_soldiers_to_defect",
+    name: "Bribe Soldiers to Defect (Sabotage)",
+    description: "Pay soldiers to switch sides and join you.",
+    effects: "Target -15 military, YOU +8 military. Requires spy. 40% detection, 45% war risk.",
+    requiresTarget: true,
+  },
+
+  // =============================================
+  // POLITICAL SABOTAGE
+  // =============================================
+  {
+    id: "assassinate_enemy_heir",
+    name: "Assassinate Enemy Heir (Sabotage)",
+    description: "Kill the next in line for the throne causing succession crisis.",
+    effects: "-20 happiness, -10 influence. Heir killed. Requires spy. 60% detection, 70% war risk.",
+    requiresTarget: true,
+  },
+  {
+    id: "spread_enemy_propaganda",
+    name: "Spread Propaganda (Sabotage)",
+    description: "Spread lies and rumors about their ruler to undermine legitimacy.",
+    effects: "-15 happiness, -10 influence. 25% detection, 15% war risk. Subtle.",
+    requiresTarget: true,
+  },
+  {
+    id: "incite_enemy_rebellion",
+    name: "Incite Rebellion (Sabotage)",
+    description: "Arm and fund rebel groups to destabilize their rule.",
+    effects: "-25 happiness, -10 military. Rebellion starts. Requires spy. 45% detection, 50% war risk.",
+    requiresTarget: true,
+  },
+  {
+    id: "bribe_enemy_advisors",
+    name: "Bribe Enemy Advisors (Sabotage)",
+    description: "Corrupt their council to give bad advice.",
+    effects: "-10 wealth. Bad decisions follow. Requires spy. 35% detection.",
+    requiresTarget: true,
+  },
+  {
+    id: "forge_enemy_documents",
+    name: "Forge Documents (Sabotage)",
+    description: "Create fake treaties, orders, or letters to cause diplomatic chaos.",
+    effects: "-15 influence. Diplomatic chaos. Requires spy. 40% detection.",
+    requiresTarget: true,
+  },
+  {
+    id: "frame_noble_for_treason",
+    name: "Frame Noble for Treason (Sabotage)",
+    description: "Plant evidence to frame a noble for treason causing internal purges.",
+    effects: "-10 happiness. Internal purge. Requires spy. 45% detection, 40% war risk.",
+    requiresTarget: true,
+  },
+  {
+    id: "support_rival_faction",
+    name: "Support Rival Faction (Sabotage)",
+    description: "Fund and arm opposition political groups.",
+    effects: "-15 happiness. Faction strengthened. Requires spy. 35% detection.",
+    requiresTarget: true,
+  },
+  {
+    id: "spread_ruler_rumors",
+    name: "Spread Ruler Rumors (Sabotage)",
+    description: "Spread rumors of ruler's madness, cruelty, or illegitimacy.",
+    effects: "-10 happiness, -15 influence. Low risk (20% detection).",
+    requiresTarget: true,
+  },
+  {
+    id: "create_enemy_succession_crisis",
+    name: "Create Succession Crisis (Sabotage)",
+    description: "Kill or discredit all viable heirs to create power vacuum.",
+    effects: "-30 happiness, -20 influence. Requires spy. 50% detection, 55% war risk.",
+    requiresTarget: true,
+  },
+  {
+    id: "blackmail_enemy_officials",
+    name: "Blackmail Officials (Sabotage)",
+    description: "Gather compromising information to control their decisions.",
+    effects: "Gain influence over their decisions. Requires spy. 30% detection.",
+    requiresTarget: true,
+  },
+
+  // =============================================
+  // RELIGIOUS SABOTAGE
+  // =============================================
+  {
+    id: "desecrate_enemy_temple",
+    name: "Desecrate Temple (Sabotage)",
+    description: "Defile and damage their holy sites.",
+    effects: "-25 happiness, -15 influence. Temple defiled. 60% detection, 50% war risk.",
+    requiresTarget: true,
+  },
+  {
+    id: "assassinate_enemy_priests",
+    name: "Assassinate Priests (Sabotage)",
+    description: "Kill religious leaders and holy men.",
+    effects: "-20 happiness. Priests killed. Requires spy. 50% detection, 45% war risk.",
+    requiresTarget: true,
+  },
+  {
+    id: "spread_heresy",
+    name: "Spread Heresy (Sabotage)",
+    description: "Introduce false religious teachings to cause schism.",
+    effects: "-15 happiness. Religious schism. Requires spy. 25% detection.",
+    requiresTarget: true,
+  },
+  {
+    id: "steal_holy_relics",
+    name: "Steal Holy Relics (Sabotage)",
+    description: "Take sacred objects from their temples for yourself.",
+    effects: "Target -20 happiness, -10 influence. YOU +10 influence. Requires spy. 55% detection.",
+    requiresTarget: true,
+  },
+  {
+    id: "corrupt_religious_texts",
+    name: "Corrupt Religious Texts (Sabotage)",
+    description: "Subtly alter their holy scriptures over time.",
+    effects: "-5 knowledge. Long-term corruption. Requires spy. Low detection (20%).",
+    requiresTarget: true,
+  },
+  {
+    id: "support_rival_cult",
+    name: "Support Rival Cult (Sabotage)",
+    description: "Fund a competing religious movement to divide their faith.",
+    effects: "-15 happiness. Cult formed. Requires spy. 35% detection.",
+    requiresTarget: true,
+  },
+  {
+    id: "poison_holy_water",
+    name: "Poison Holy Water (Sabotage)",
+    description: "Contaminate sacred water supplies causing sickness and crisis of faith.",
+    effects: "-15 happiness, -3 population. 40% detection, 45% war risk.",
+    requiresTarget: true,
+  },
+  {
+    id: "fake_divine_omens",
+    name: "Fake Divine Omens (Sabotage)",
+    description: "Stage fake supernatural events and bad prophecies.",
+    effects: "-20 happiness. Fear spreads. 30% detection, low war risk.",
+    requiresTarget: true,
+  },
+
+  // =============================================
+  // INFRASTRUCTURE SABOTAGE
+  // =============================================
+  {
+    id: "destroy_enemy_bridges",
+    name: "Destroy Bridges (Sabotage)",
+    description: "Destroy bridges to cut off movement and trade.",
+    effects: "-15 wealth. Isolation. 50% detection, 30% war risk.",
+    requiresTarget: true,
+  },
+  {
+    id: "block_mountain_passes",
+    name: "Block Mountain Passes (Sabotage)",
+    description: "Cause rockslides to block trade routes.",
+    effects: "-20 wealth. Trade routes closed. 35% detection, 25% war risk.",
+    requiresTarget: true,
+  },
+  {
+    id: "burn_enemy_harbor",
+    name: "Burn Enemy Harbor (Sabotage)",
+    description: "Burn docks, ships, and port facilities.",
+    effects: "-25 wealth, -10 military. Naval power crippled. 55% detection, 40% war risk.",
+    requiresTarget: true,
+  },
+  {
+    id: "collapse_enemy_mines",
+    name: "Collapse Enemy Mines (Sabotage)",
+    description: "Cause cave-ins in mining operations.",
+    effects: "-15 wealth, -5 population. Mines destroyed. 40% detection, 35% war risk.",
+    requiresTarget: true,
+  },
+  {
+    id: "destroy_enemy_aqueducts",
+    name: "Destroy Aqueducts (Sabotage)",
+    description: "Destroy water supply infrastructure causing crisis.",
+    effects: "-20 happiness, -10 food. Water crisis. 45% detection, 40% war risk.",
+    requiresTarget: true,
+  },
+  {
+    id: "set_enemy_city_fires",
+    name: "Set City Fires (Sabotage)",
+    description: "Start fires in populated areas causing mass destruction.",
+    effects: "-25 happiness, -20 wealth, -5 population. Devastating. 45% detection, 45% war risk.",
+    requiresTarget: true,
+  },
+  {
+    id: "dam_enemy_rivers",
+    name: "Dam Rivers (Sabotage)",
+    description: "Block rivers to cause flood or drought downstream.",
+    effects: "-25 food, -15 happiness. Agricultural disaster. 50% detection, 35% war risk.",
+    requiresTarget: true,
+  },
+  {
+    id: "destroy_enemy_roads",
+    name: "Destroy Roads (Sabotage)",
+    description: "Dig trenches, destroy paving, cut off movement.",
+    effects: "-10 wealth. Trade and military movement slowed. 40% detection, 25% war risk.",
+    requiresTarget: true,
+  },
+
+  // =============================================
+  // DEMOGRAPHIC SABOTAGE
+  // =============================================
+  {
+    id: "spread_enemy_plague",
+    name: "Spread Plague (Sabotage)",
+    description: "Intentionally introduce deadly disease into their population.",
+    effects: "-15 population, -30 happiness. Plague outbreak. 35% detection, 60% war risk. DEVASTATING.",
+    requiresTarget: true,
+  },
+  {
+    id: "poison_enemy_food_supply",
+    name: "Poison Food Supply (Sabotage)",
+    description: "Contaminate stored food with poison.",
+    effects: "-10 population, -20 happiness, -20 food. Mass poisoning. 45% detection, 50% war risk.",
+    requiresTarget: true,
+  },
+  {
+    id: "kidnap_enemy_craftsmen",
+    name: "Kidnap Craftsmen (Sabotage)",
+    description: "Abduct skilled workers for your own use.",
+    effects: "Target -5 technology. Craftsmen now work for YOU. 50% detection, 35% war risk.",
+    requiresTarget: true,
+  },
+  {
+    id: "encourage_enemy_emigration",
+    name: "Encourage Emigration (Sabotage)",
+    description: "Lure their population to leave for your lands.",
+    effects: "Target -5 population, -10 happiness. YOU gain population. Requires spy. Low risk (25%).",
+    requiresTarget: true,
+  },
+  {
+    id: "assassinate_enemy_healers",
+    name: "Assassinate Healers (Sabotage)",
+    description: "Kill doctors and healers, especially during plague.",
+    effects: "-15 happiness. Healers killed. Disease spreads unchecked. Requires spy. 45% detection.",
+    requiresTarget: true,
+  },
+
+  // =============================================
+  // PSYCHOLOGICAL SABOTAGE
+  // =============================================
+  {
+    id: "spread_terror",
+    name: "Spread Terror (Sabotage)",
+    description: "Random murders and night attacks to terrorize the population.",
+    effects: "-25 happiness. Terror campaign. 40% detection, 35% war risk.",
+    requiresTarget: true,
+  },
+  {
+    id: "display_enemy_heads",
+    name: "Display Enemy Heads (Sabotage)",
+    description: "Gruesome display of killed enemies for intimidation.",
+    effects: "-20 happiness, -5 military. Morale crushed. 80% detection (overt), 50% war risk.",
+    requiresTarget: true,
+  },
+  {
+    id: "create_bad_omens",
+    name: "Create Bad Omens (Sabotage)",
+    description: "Stage fake supernatural events and prophesy doom.",
+    effects: "-15 happiness. Superstitious fear. Low detection (25%), low war risk.",
+    requiresTarget: true,
+  },
+  {
+    id: "conduct_night_raids",
+    name: "Night Raids (Sabotage)",
+    description: "Attack civilians at night causing sleep deprivation and terror.",
+    effects: "-20 happiness, -2 population. Exhaustion and fear. 50% detection, 40% war risk.",
+    requiresTarget: true,
+  },
+  {
+    id: "demoralize_with_losses",
+    name: "Demoralize with Losses (Sabotage)",
+    description: "Exaggerate their casualties to spread defeatism.",
+    effects: "-10 happiness, -5 military. Defeatism spreads. Low detection (20%).",
+    requiresTarget: true,
+  },
+
+  // =============================================
+  // SOCIAL SABOTAGE
+  // =============================================
+  {
+    id: "incite_class_warfare",
+    name: "Incite Class Warfare (Sabotage)",
+    description: "Turn the poor against the rich causing social unrest.",
+    effects: "-20 happiness, -10 wealth. Class conflict. Requires spy. 35% detection.",
+    requiresTarget: true,
+  },
+  {
+    id: "spread_ethnic_hatred",
+    name: "Spread Ethnic Hatred (Sabotage)",
+    description: "Inflame tensions between ethnic groups.",
+    effects: "-25 happiness. Ethnic tension. Requires spy. 30% detection, 25% war risk.",
+    requiresTarget: true,
+  },
+  {
+    id: "corrupt_enemy_youth",
+    name: "Corrupt Youth (Sabotage)",
+    description: "Spread vice and laziness among young people.",
+    effects: "-10 happiness, -5 technology. Future weakened. Requires spy. Low detection (20%).",
+    requiresTarget: true,
+  },
+  {
+    id: "undermine_political_marriages",
+    name: "Undermine Marriages (Sabotage)",
+    description: "Break political marriages and alliances.",
+    effects: "-15 influence. Alliances broken. Requires spy. 35% detection, 25% war risk.",
+    requiresTarget: true,
+  },
+  {
+    id: "spread_addiction",
+    name: "Spread Addiction (Sabotage)",
+    description: "Introduce addictive substances to weaken their population.",
+    effects: "-15 happiness, -10 wealth. Addiction epidemic. Requires spy. Low detection (25%).",
+    requiresTarget: true,
+  },
+  {
+    id: "destroy_cultural_artifacts",
+    name: "Destroy Cultural Artifacts (Sabotage)",
+    description: "Burn art, destroy statues, erase their cultural identity.",
+    effects: "-20 happiness, -20 influence. Identity damaged. 55% detection, 40% war risk.",
+    requiresTarget: true,
   },
 
   // =============================================
@@ -822,6 +1939,82 @@ export const AVAILABLE_ACTIONS = [
   },
 
   // =============================================
+  // TREASURY & FINANCE ACTIONS
+  // =============================================
+  {
+    id: "mint_coins",
+    name: "Mint New Coins",
+    description: "Order the minting of new coins from your metal reserves",
+    effects: "Converts raw gold/silver/copper into coins for trade. Requires coined economy phase.",
+  },
+  {
+    id: "debase_currency",
+    name: "Debase Currency",
+    description: "Reduce the precious metal content in your coins to stretch your wealth further",
+    effects: "Short-term: +coins. Long-term: +inflation, -trade trust. Risky!",
+  },
+  {
+    id: "take_loan",
+    name: "Take a Loan",
+    description: "Borrow money from merchants, nobles, temples, or foreign powers",
+    effects: "Immediate +wealth, but must repay with interest. Default risks war or seizure.",
+  },
+  {
+    id: "repay_loan",
+    name: "Repay Loan",
+    description: "Pay off outstanding debts to improve credit rating",
+    effects: "-wealth (principal + interest), +credit rating, avoids default penalties.",
+  },
+  {
+    id: "raise_taxes",
+    name: "Raise Taxes",
+    description: "Increase tax rates to boost treasury income",
+    effects: "+treasury income, -happiness, risk of tax evasion and unrest.",
+  },
+  {
+    id: "lower_taxes",
+    name: "Lower Taxes",
+    description: "Reduce tax burden to improve happiness and economic activity",
+    effects: "-treasury income, +happiness, +trade activity, +population growth.",
+  },
+  {
+    id: "establish_bank",
+    name: "Establish a Bank",
+    description: "Found a bank to manage loans, deposits, and currency exchange",
+    effects: "Enables banking operations, +wealth generation, requires banking economic phase.",
+  },
+  {
+    id: "set_price_controls",
+    name: "Set Price Controls",
+    description: "Fix maximum prices for essential goods to protect the poor",
+    effects: "+happiness for poor, risk of shortages and black markets.",
+  },
+  {
+    id: "remove_price_controls",
+    name: "Remove Price Controls",
+    description: "Allow markets to set prices freely",
+    effects: "Prices may rise, but supply improves. May anger the poor.",
+  },
+  {
+    id: "increase_wages",
+    name: "Increase Minimum Wage",
+    description: "Mandate higher wages for workers",
+    effects: "+worker happiness, +costs for employers, may reduce employment.",
+  },
+  {
+    id: "crack_down_tax_evaders",
+    name: "Crack Down on Tax Evaders",
+    description: "Enforce tax collection more strictly",
+    effects: "+tax revenue, -happiness among wealthy, risk of noble unrest.",
+  },
+  {
+    id: "grant_tax_exemption",
+    name: "Grant Tax Exemption",
+    description: "Exempt a group (nobles, clergy, merchants) from certain taxes",
+    effects: "+loyalty from exempt group, -treasury income, may anger others.",
+  },
+
+  // =============================================
   // ENGAGEMENT SYSTEM - CHARACTER & INTRIGUE ACTIONS
   // =============================================
   {
@@ -1029,6 +2222,263 @@ export const AVAILABLE_ACTIONS = [
     description: "Assign a character with law knowledge to serve as judge",
     effects: "Character becomes judge. Handles trials. Justice trait affects fairness.",
   },
+
+  // =============================================
+  // ENDGAME - NUCLEAR ACTIONS (Atomic Era)
+  // =============================================
+  {
+    id: "start_nuclear_program",
+    name: "Start Nuclear Program",
+    description: "Begin developing nuclear weapons. Requires nuclear_fission technology. Very expensive but provides ultimate deterrent.",
+    effects: "Costs 20 wealth per warhead. Creates global tension. Other civilizations will react with fear.",
+    requiredTech: "nuclear_fission",
+  },
+  {
+    id: "stop_nuclear_production",
+    name: "Stop Nuclear Production",
+    description: "Halt production of nuclear weapons",
+    effects: "Stops wealth drain. May ease global tensions. Shows peaceful intent.",
+    requiredTech: "nuclear_fission",
+  },
+  {
+    id: "nuclear_strike",
+    name: "Launch Nuclear Strike",
+    description: "Use nuclear weapons against an enemy. EXTREMELY DESTRUCTIVE. Will likely trigger retaliation if they have nukes (MAD).",
+    effects: "Devastates target population/infrastructure. If target has nukes, expect retaliation. Changes history forever.",
+    requiresTarget: true,
+    requiredTech: "nuclear_fission",
+  },
+  {
+    id: "propose_disarmament",
+    name: "Propose Nuclear Disarmament",
+    description: "Offer to reduce nuclear arsenals with another nuclear power",
+    effects: "If accepted: Both sides reduce warheads. Global tension decreases. Doomsday clock moves back.",
+    requiresTarget: true,
+    requiredTech: "nuclear_fission",
+  },
+
+  // =============================================
+  // RISE AND FALL - REFORM ACTIONS
+  // =============================================
+  {
+    id: "implement_reform",
+    name: "Implement Reform",
+    description: "Address internal decay with structural reforms. Use when facing decadence or crisis. Costs wealth and causes short-term unhappiness but reduces corruption/decadence.",
+    effects: "Costs 50 wealth, -20 happiness temporarily. Reduces decadence by 30, corruption by 15. May end crisis.",
+  },
+  {
+    id: "purge_corruption",
+    name: "Purge Corruption",
+    description: "Root out corrupt officials. Ruthless but effective at reducing corruption.",
+    effects: "Reduces corruption significantly. May cause unrest. Ruthless rulers do this better.",
+  },
+  {
+    id: "austerity_measures",
+    name: "Austerity Measures",
+    description: "Cut spending and live frugally to address economic crisis",
+    effects: "-20 wealth spending, -10 happiness. Stops economic bleeding during depression.",
+  },
+  {
+    id: "bread_and_circuses",
+    name: "Bread and Circuses",
+    description: "Spend wealth on entertainment and food to placate the masses during crisis",
+    effects: "-30 wealth, +20 happiness. Temporary fix - doesn't solve underlying problems.",
+  },
+
+  // =============================================
+  // HUMAN LIFE SYSTEMS - MARRIAGE & DYNASTY
+  // =============================================
+  {
+    id: "arrange_political_marriage",
+    name: "Arrange Political Marriage",
+    description: "Arrange a marriage between your people and another territory for political alliance. Creates formal bond between civilizations.",
+    effects: "Creates marriage alliance. +20 trust with target. Costs 50 gold dowry. Strengthens diplomatic ties.",
+    requiresTarget: true,
+  },
+  {
+    id: "set_inheritance_law",
+    name: "Set Inheritance Law",
+    description: "Establish how power passes to the next generation. Options: primogeniture (eldest child), agnatic (eldest male only), elective (council chooses), seniority (oldest family member).",
+    effects: "Changes succession rules. May cause unrest if it disinherits expected heirs. Affects long-term stability.",
+  },
+  {
+    id: "legitimize_bastard",
+    name: "Legitimize Bastard",
+    description: "Recognize an illegitimate child as a legitimate heir. Allows them to inherit.",
+    effects: "-10 dynasty prestige. Child can now be named heir. May anger legitimate heirs.",
+  },
+
+  // =============================================
+  // HUMAN LIFE SYSTEMS - ROMANCE
+  // =============================================
+  {
+    id: "encourage_match",
+    name: "Encourage Match",
+    description: "Promote a romantic relationship between two characters. Love can bloom with a little help.",
+    effects: "+20 romance progress. Characters may fall in love. Could lead to marriage.",
+  },
+  {
+    id: "forbid_relationship",
+    name: "Forbid Relationship",
+    description: "Ban an inappropriate relationship (affair, forbidden love, etc.). May cause resentment.",
+    effects: "Relationship ends or becomes secret. -10 happiness for involved parties. May create grudge.",
+  },
+
+  // =============================================
+  // HUMAN LIFE SYSTEMS - INFRASTRUCTURE
+  // =============================================
+  {
+    id: "build_road",
+    name: "Build Road",
+    description: "Construct a road connecting to another territory. Improves trade and military movement.",
+    effects: "Creates road infrastructure. +15% trade income with connected territory. +20% army movement speed.",
+    requiresTarget: true,
+  },
+  {
+    id: "build_wall",
+    name: "Build Defensive Wall",
+    description: "Construct walls around your settlement. Essential for defense.",
+    effects: "Creates wall infrastructure. +30% siege defense. -siege_damage_per_tick. Costs wealth to maintain.",
+  },
+  {
+    id: "build_aqueduct_infrastructure",
+    name: "Build Aqueduct",
+    description: "Construct water supply infrastructure for better sanitation and farming.",
+    effects: "Creates aqueduct. +20% farm productivity. -10% disease risk. +5 happiness from clean water.",
+  },
+  {
+    id: "build_harbor",
+    name: "Build Harbor",
+    description: "Construct a harbor for naval trade and overseas expeditions. Requires coastal territory.",
+    effects: "Creates harbor. Enables overseas trade. +25% trade income. Required for overseas expeditions.",
+  },
+
+  // =============================================
+  // HUMAN LIFE SYSTEMS - EXPLORATION
+  // =============================================
+  {
+    id: "launch_expedition",
+    name: "Launch Expedition",
+    description: "Send explorers into the unknown. Choose direction: north, south, east, west, or overseas (requires harbor).",
+    effects: "Expedition departs. May discover resources, new peoples, ancient ruins. Risk of losses. Returns in 10-25 ticks.",
+  },
+  {
+    id: "establish_colony",
+    name: "Establish Colony",
+    description: "Settle a new territory based on expedition discoveries. Expands your civilization.",
+    effects: "Creates new settlement. Requires successful expedition with fertile land discovery. Costs population and resources.",
+  },
+
+  // =============================================
+  // HUMAN LIFE SYSTEMS - ESPIONAGE
+  // =============================================
+  {
+    id: "train_spy",
+    name: "Train Spy",
+    description: "Train a new espionage agent for covert operations. Education level affects spy quality.",
+    effects: "Creates spy. Costs 200 gold. Spy skill based on territory education. Takes time to train.",
+  },
+  {
+    id: "deploy_spy",
+    name: "Deploy Spy",
+    description: "Send a spy to infiltrate another territory. Choose cover (merchant, diplomat, servant, scholar, traveler) and mission (gather_intel, sabotage, steal_tech, incite_rebellion, assassinate).",
+    effects: "Spy infiltrates target. Risk of discovery based on target's counter-intelligence. Mission difficulty varies.",
+    requiresTarget: true,
+  },
+  {
+    id: "extract_spy",
+    name: "Extract Spy",
+    description: "Recall a deployed spy before they are discovered. Brings back gathered intelligence.",
+    effects: "Spy returns with intel. Extraction has risk of discovery. Better to extract than lose spy.",
+  },
+  {
+    id: "increase_counter_intelligence",
+    name: "Increase Counter-Intelligence",
+    description: "Invest in detecting and catching enemy spies in your territory.",
+    effects: "+10 counter-intelligence. Costs 500 gold. Higher detection chance for enemy spies.",
+  },
+  {
+    id: "execute_captured_spy",
+    name: "Execute Captured Spy",
+    description: "Execute a captured enemy spy. Sends a message but may provoke retaliation.",
+    effects: "Spy dies. -20 trust with spy's origin territory. May deter future espionage.",
+  },
+  {
+    id: "turn_captured_spy",
+    name: "Turn Captured Spy",
+    description: "Attempt to convert a captured spy into a double agent working for you.",
+    effects: "If successful, spy now works for you. Can feed false intel to enemy. Risk of failure.",
+  },
+
+  // =============================================
+  // HUMAN LIFE SYSTEMS - GENDER & SOCIETY
+  // =============================================
+  {
+    id: "grant_women_rights",
+    name: "Grant Women's Rights",
+    description: "Progressive reform allowing women more roles in society (work, own property, rule, fight).",
+    effects: "+workforce if women can work. Traditionalists may resist. +happiness for progressive citizens.",
+  },
+  {
+    id: "restrict_women_roles",
+    name: "Restrict Women's Roles",
+    description: "Enforce traditional gender roles. May appeal to conservative elements.",
+    effects: "-workforce from women. Traditionalists approve. -happiness for progressive citizens.",
+  },
+
+  // =============================================
+  // HUMAN LIFE SYSTEMS - WAR DEMOGRAPHICS
+  // =============================================
+  {
+    id: "conscript_reserves",
+    name: "Conscript Reserves",
+    description: "Call up trained reserves for active military duty. Only fighting-age men (16-50) eligible by default.",
+    effects: "Reserves become active soldiers. Reduces civilian workforce. Standard conscription.",
+  },
+  {
+    id: "emergency_conscription",
+    name: "Emergency Conscription",
+    description: "Desperate measure: expand conscription age to 14-60 or include women (if culture allows).",
+    effects: "More soldiers but terrible happiness penalty. Last resort only. -20 happiness.",
+  },
+  {
+    id: "care_for_widows",
+    name: "Care for Widows and Orphans",
+    description: "Establish support for war widows and orphans. Costly but improves morale.",
+    effects: "-wealth per widow/orphan. +15 happiness. Reduces social instability from war losses.",
+  },
+
+  // =============================================
+  // HUMAN LIFE SYSTEMS - MENTAL HEALTH
+  // =============================================
+  {
+    id: "establish_healing_sanctuary",
+    name: "Establish Healing Sanctuary",
+    description: "Build a place for mental health treatment. Requires education or piety above 40.",
+    effects: "All characters begin therapy. -500 gold. +recovery rate for trauma, depression, PTSD.",
+  },
+  {
+    id: "exile_madman",
+    name: "Exile Mad Character",
+    description: "Remove a character driven mad from your court. Harsh but may be necessary.",
+    effects: "Character exiled. -15 happiness. Removes danger from madness but cold solution.",
+  },
+
+  // =============================================
+  // HUMAN LIFE SYSTEMS - ADDICTION
+  // =============================================
+  {
+    id: "ban_substances",
+    name: "Ban Substances",
+    description: "Prohibit alcohol, gambling, or opium. May reduce new addictions but drives existing ones underground.",
+    effects: "Prohibition enacted. -new addiction rate. May create black market. Enforcement difficult.",
+  },
+  {
+    id: "tavern_regulation",
+    name: "Regulate Taverns",
+    description: "Control alcohol access through regulation instead of prohibition. Moderate approach.",
+    effects: "Hours restricted, serving rules. Moderate reduction in alcoholism. Less backlash than prohibition.",
+  },
 ];
 
 export interface RelationshipContext {
@@ -1215,6 +2665,145 @@ ${heirHighPriorities.map(p => `- ${p.description}`).join("\n")}
 ${h.traits.ambition > 70 ? `- *"I am ready to rule. Perhaps sooner than expected..."*` : `- *"I will honor my duty when the time comes."*"}`}`);
   }
 
+  // === MENTAL HEALTH & PSYCHOLOGICAL STATE ===
+  if (context.ruler?.mentalHealth || context.ruler?.addiction) {
+    const r = context.ruler;
+    let mentalSection = `### ${r.name}'s State of Mind\n`;
+
+    // Mental health effects on decisions
+    if (r.mentalHealth) {
+      const mh = r.mentalHealth;
+
+      if (mh.madness) {
+        const madnessEffects: Record<string, { icon: string; description: string; biases: string[] }> = {
+          paranoid: {
+            icon: "👁️",
+            description: "Sees conspiracies and threats everywhere",
+            biases: [
+              "⚠️ You suspect EVERYONE. Even loyal advisors might be plotting against you.",
+              "Consider: exile_character, execute_character, increase counter-intelligence",
+              "Trust no one. Better to act preemptively than be betrayed.",
+              "*Every whisper is about you. Every smile hides a dagger.*"
+            ]
+          },
+          megalomaniac: {
+            icon: "👑",
+            description: "Delusions of grandeur and destiny",
+            biases: [
+              "⚠️ You are DESTINED for greatness. Lesser rulers should bow before you.",
+              "Consider: declare_war, demand_tribute, expand aggressively",
+              "Caution is for the weak. Glory awaits the bold!",
+              "*The world will remember your name for eternity.*"
+            ]
+          },
+          violent: {
+            icon: "🩸",
+            description: "Uncontrollable rage and bloodlust",
+            biases: [
+              "⚠️ Violence is the ONLY answer they understand.",
+              "Consider: execute_character, raid, declare_war, attack",
+              "Diplomacy is weakness. Show them your wrath!",
+              "*Blood must be spilled. It is the only way.*"
+            ]
+          },
+          delusional: {
+            icon: "🌀",
+            description: "Disconnected from reality",
+            biases: [
+              "⚠️ Your perception may not match reality. But who defines reality?",
+              "Your visions guide you. Others simply cannot understand.",
+              "The voices/signs speak truths others cannot hear.",
+              "*What you see is real. The others are blind.*"
+            ]
+          },
+          depressive: {
+            icon: "🌑",
+            description: "Overwhelming despair and hopelessness",
+            biases: [
+              "⚠️ Nothing matters. Why bother trying?",
+              "Consider: passive actions, maintaining status quo, isolation",
+              "Every effort seems futile. The darkness is comforting.",
+              "*Let others handle it. You are too weary to care.*"
+            ]
+          },
+          manic: {
+            icon: "⚡",
+            description: "Extreme energy and impulsive decisions",
+            biases: [
+              "⚠️ Act NOW! Why wait? Do EVERYTHING at once!",
+              "Consider: multiple ambitious projects, risky ventures",
+              "Sleep is for the weak! You have endless energy!",
+              "*So many ideas! Do them ALL! NOW! FASTER!*"
+            ]
+          }
+        };
+
+        const effect = madnessEffects[mh.madness];
+        if (effect) {
+          mentalSection += `\n${effect.icon} **MADNESS: ${mh.madness.toUpperCase()}**\n${effect.description}\n\n`;
+          mentalSection += `**How this affects your thinking:**\n${effect.biases.map(b => `- ${b}`).join("\n")}\n`;
+        }
+      }
+
+      // Other mental health issues
+      const issues: string[] = [];
+      if (mh.trauma > 60) issues.push(`High trauma (${mh.trauma}) - haunted by past events`);
+      if (mh.depression > 60) issues.push(`Depression (${mh.depression}) - low motivation`);
+      if (mh.anxiety > 60) issues.push(`Anxiety (${mh.anxiety}) - fear of failure`);
+      if (mh.ptsd) issues.push("PTSD - flashbacks during crisis situations");
+      if (mh.sanity < 40) issues.push(`Low sanity (${mh.sanity}) - struggling to cope`);
+
+      if (issues.length > 0 && !mh.madness) {
+        mentalSection += `\n**Psychological Burden:**\n${issues.map(i => `- ${i}`).join("\n")}\n`;
+        mentalSection += `*These issues affect decision-making. Consider therapy/healing.*\n`;
+      }
+
+      if (mh.inTherapy) {
+        mentalSection += `\n✨ *Currently receiving healing/therapy - recovery in progress*\n`;
+      }
+    }
+
+    // Addiction effects on decisions
+    if (r.addiction) {
+      const add = r.addiction;
+      const addictionBiases: Record<string, string[]> = {
+        alcohol: [
+          "Judgment impaired by drink",
+          "May make rash decisions",
+          "Consider: tavern_regulation to address your own vice"
+        ],
+        gambling: [
+          "Attracted to risky ventures",
+          "May bet the kingdom's wealth",
+          "Every decision feels like a wager"
+        ],
+        opium: [
+          "Disconnected, dreamy thinking",
+          "May neglect urgent matters",
+          "Reality feels distant and unimportant"
+        ],
+        other: [
+          "Compulsive behaviors affect judgment",
+          "May prioritize feeding the habit",
+          "Vulnerable to manipulation by suppliers"
+        ]
+      };
+
+      const severityImpact: Record<string, string> = {
+        mild: "Minor impact on judgment",
+        moderate: "Noticeable impairment in decision-making",
+        severe: "Significantly impaired - poor judgment likely",
+        crippling: "CRITICAL - barely functional, desperate for next fix"
+      };
+
+      mentalSection += `\n🍷 **ADDICTION: ${add.type.toUpperCase()}** (${add.severity})\n`;
+      mentalSection += `- ${severityImpact[add.severity]}\n`;
+      mentalSection += `**Effects on your thinking:**\n${addictionBiases[add.type].map(b => `- ${b}`).join("\n")}\n`;
+    }
+
+    sections.push(mentalSection);
+  }
+
   // === COURT INTRIGUE ===
   if (context.courtMembers.length > 0) {
     const suspiciousMembers = context.courtMembers.filter(
@@ -1356,6 +2945,958 @@ ${context.recentSuccession.narrative}`);
 }
 
 // =============================================
+// ESPIONAGE INTELLIGENCE SECTION
+// =============================================
+// Shows gathered spy intelligence to inform military/diplomatic decisions
+
+function buildEspionageSection(context?: EspionageContext): string {
+  if (!context) return "";
+  if (context.activeSpies === 0 && context.intelligence.length === 0) return "";
+
+  const sections: string[] = [];
+
+  sections.push(`## 🕵️ SPY NETWORK INTELLIGENCE
+
+*Your spies have gathered the following intelligence. Use this to make informed military and diplomatic decisions.*`);
+
+  // Spy network status
+  let networkStatus = `### Network Status
+- **Active Agents:** ${context.activeSpies}
+- **Captured Agents:** ${context.capturedSpies}
+- **Counter-Intelligence:** ${context.counterIntelligence}/100
+- **Known Enemy Spies:** ${context.knownEnemySpies}`;
+  sections.push(networkStatus);
+
+  // Intelligence reports
+  if (context.intelligence.length > 0) {
+    const intelByTarget = new Map<string, typeof context.intelligence>();
+    for (const intel of context.intelligence) {
+      const existing = intelByTarget.get(intel.targetTerritoryName) || [];
+      existing.push(intel);
+      intelByTarget.set(intel.targetTerritoryName, existing);
+    }
+
+    let intelSection = `### Gathered Intelligence\n`;
+
+    for (const [targetName, reports] of intelByTarget) {
+      intelSection += `\n**${targetName}:**\n`;
+      for (const report of reports.slice(-3)) { // Last 3 reports per target
+        const reliabilityIcon = report.reliability === "high" ? "✓" : report.reliability === "medium" ? "?" : "⚠️";
+        intelSection += `- ${reliabilityIcon} [${report.intelType}] ${report.info}\n`;
+      }
+    }
+
+    intelSection += `\n*Use this intelligence to:*
+- **Plan attacks** when enemy military is weak
+- **Time diplomacy** when enemy is distracted
+- **Counter enemy plans** before they execute
+- **Exploit weaknesses** in enemy infrastructure or morale
+
+💡 **COMBAT BONUS:** Having active spies in an enemy territory provides up to +25% combat effectiveness when attacking them. Your spies report enemy positions, troop movements, and weak points. The more skilled and infiltrated your spies, the greater the advantage.`;
+
+    sections.push(intelSection);
+  } else {
+    sections.push(`### No Intelligence Gathered
+*Deploy spies to enemy territories to gather intel on their military strength, resources, and plans.*`);
+  }
+
+  // Sabotage opportunities - education targets
+  if (context.sabotageTargets && context.sabotageTargets.length > 0) {
+    let sabotageSection = `### 🔥 SABOTAGE OPPORTUNITIES
+
+*Your spies have identified vulnerable education targets in rival civilizations. Disrupting their knowledge systems can cripple their long-term development.*
+
+| Territory | Education Assets | Vulnerability | Spy in Place? |
+|-----------|-----------------|---------------|---------------|`;
+
+    for (const target of context.sabotageTargets) {
+      const assets: string[] = [];
+      if (target.hasLibrary) assets.push("Library");
+      if (target.hasUniversity) assets.push("University");
+      if (target.hasSchools > 0) assets.push(`${target.hasSchools} Schools`);
+      if (target.scholarCount > 0) assets.push(`${target.scholarCount} Scholars`);
+
+      const vulnLevel = target.educationVulnerability >= 60 ? "HIGH" :
+                       target.educationVulnerability >= 40 ? "Medium" : "Low";
+      const spyStatus = target.hasSpy ? "✓ Yes" : "✗ No";
+
+      sabotageSection += `
+| ${target.territoryName} | ${assets.join(", ") || "None"} | ${vulnLevel} | ${spyStatus} |`;
+    }
+
+    sabotageSection += `
+
+**Available Sabotage Actions:**
+- \`burn_enemy_library\` - Destroy their accumulated knowledge (requires spy)
+- \`sabotage_enemy_school\` - Disrupt education operations
+- \`assassinate_enemy_scholar\` - Eliminate key knowledge holders
+- \`steal_enemy_scrolls\` - Take their knowledge for yourself
+- \`spread_misinformation\` - Corrupt their teachings (subtle, low risk)
+- \`bribe_scholar_to_defect\` - Recruit their best minds
+- \`destroy_enemy_university\` - Cripple advanced learning (requires spy)
+
+⚠️ **Warning:** Sabotage operations carry risk of detection and may trigger war!`;
+
+    sections.push(sabotageSection);
+  }
+
+  return sections.join("\n\n");
+}
+
+// =============================================
+// SABOTAGE MOTIVATION SECTION
+// =============================================
+// Shows WHY the civilization might want to sabotage
+// This helps make sabotage feel organic and motivated, not random
+
+function buildSabotageSection(context?: SabotageMotiveContext): string {
+  if (!context || context.pressure < 15) return "";
+
+  const sections: string[] = [];
+
+  // Header with pressure indicator
+  const pressureLevel = context.pressure >= 70 ? "HIGH" :
+                        context.pressure >= 40 ? "MODERATE" :
+                        context.pressure >= 20 ? "LOW" : "MINIMAL";
+
+  const pressureEmoji = context.pressure >= 70 ? "🔥" :
+                        context.pressure >= 40 ? "⚡" : "📊";
+
+  sections.push(`## ${pressureEmoji} COVERT OPERATIONS OPPORTUNITY
+
+*Your advisors sense opportunity for covert action. Sabotage pressure: **${pressureLevel}** (${Math.round(context.pressure)}%)*`);
+
+  // Motivations
+  if (context.topMotives && context.topMotives.length > 0) {
+    let motiveSection = `### Why We Feel This Way\n`;
+
+    for (const motive of context.topMotives) {
+      const intensityBar = "█".repeat(Math.floor(motive.intensity / 20)) + "░".repeat(5 - Math.floor(motive.intensity / 20));
+      motiveSection += `- [${intensityBar}] ${motive.reason}\n`;
+    }
+
+    motiveSection += `\n*These circumstances are driving your people toward covert action. High motivation + opportunity = likely sabotage.*`;
+    sections.push(motiveSection);
+  }
+
+  // Suggested targets
+  if (context.suggestedTargets && context.suggestedTargets.length > 0) {
+    let targetSection = `### Potential Targets
+
+| Territory | Pressure | Primary Motivation | Suggested Operations |
+|-----------|----------|-------------------|---------------------|`;
+
+    for (const target of context.suggestedTargets) {
+      const pressureColor = target.pressure >= 60 ? "🔴" :
+                            target.pressure >= 40 ? "🟡" : "🟢";
+      targetSection += `
+| ${target.name} | ${pressureColor} ${Math.round(target.pressure)}% | ${target.reason.substring(0, 40)}... | ${target.suggestions.slice(0, 2).join(", ")} |`;
+    }
+
+    targetSection += `
+
+**Remember:** Sabotage emerges from *circumstances* - desperation, grudges, rivalry, strategic necessity, religious conflict, or opportunism. Act when the motivation is genuine, not just because you can.`;
+
+    sections.push(targetSection);
+  }
+
+  // Warning
+  sections.push(`⚠️ **Consequences of Sabotage:**
+- Detection can damage relations or trigger war
+- Success creates memories/grudges - enemies may retaliate
+- Some operations require spies in place
+- Religious sabotage against devout enemies has extra risk`);
+
+  return sections.join("\n\n");
+}
+
+// =============================================
+// WEATHER CONTEXT SECTION
+// =============================================
+
+function buildWeatherSection(context?: WeatherContext): string {
+  if (!context) return "";
+
+  const weatherEmoji: Record<string, string> = {
+    clear: "☀️", cloudy: "☁️", rain: "🌧️", heavy_rain: "⛈️",
+    thunderstorm: "🌩️", snow: "❄️", blizzard: "🌨️", drought: "🏜️",
+    heat_wave: "🔥", fog: "🌫️", monsoon: "🌊"
+  };
+
+  const emoji = weatherEmoji[context.currentWeather] || "🌤️";
+  const extremeWarning = context.isExtreme ? " ⚠️ **EXTREME CONDITIONS**" : "";
+
+  let section = `## ${emoji} WEATHER: ${context.currentWeather.replace(/_/g, " ").toUpperCase()}${extremeWarning}
+
+| Factor | Effect |
+|--------|--------|
+| Farming | ${context.farmingModifier > 0 ? "+" : ""}${context.farmingModifier}% |
+| Military | ${context.militaryModifier > 0 ? "+" : ""}${context.militaryModifier}% |
+| Travel | ${context.travelModifier > 0 ? "+" : ""}${context.travelModifier}% |
+| Mood | ${context.moodModifier > 0 ? "+" : ""}${context.moodModifier}% |
+
+*Expected to last ${context.expectedDuration} more months.*`;
+
+  if (context.isExtreme) {
+    section += `\n\n⚠️ **Extreme weather affects all operations. Consider waiting or adapting plans.**`;
+  }
+
+  return section;
+}
+
+// =============================================
+// DISASTER CONTEXT SECTION
+// =============================================
+
+function buildDisasterSection(context?: DisasterContext): string {
+  if (!context) return "";
+  if (context.activeDisasters.length === 0 && context.disasterRisk < 30) return "";
+
+  const sections: string[] = [];
+
+  if (context.activeDisasters.length > 0) {
+    let disasterList = `## 🔥 ACTIVE DISASTERS\n\n`;
+    for (const d of context.activeDisasters) {
+      const severityIcon = d.severity === "catastrophic" ? "💀" : d.severity === "major" ? "🔴" : d.severity === "moderate" ? "🟡" : "🟢";
+      disasterList += `### ${severityIcon} ${d.type.replace(/_/g, " ").toUpperCase()}
+- Severity: **${d.severity}**
+- Casualties: ${d.casualties}
+- Buildings Destroyed: ${d.buildingsDestroyed}
+- Recovery: ${d.recoveryProgress}%\n\n`;
+    }
+    sections.push(disasterList);
+  }
+
+  if (context.disasterRisk >= 30) {
+    const riskLevel = context.disasterRisk >= 70 ? "HIGH" : context.disasterRisk >= 50 ? "MODERATE" : "LOW";
+    sections.push(`⚠️ **Disaster Risk: ${riskLevel}** (${context.disasterRisk}%) - Consider preparedness measures.`);
+  }
+
+  return sections.join("\n");
+}
+
+// =============================================
+// INFRASTRUCTURE CONTEXT SECTION
+// =============================================
+
+function buildInfrastructureSection(context?: InfrastructureContext): string {
+  if (!context || context.infrastructure.length === 0) return "";
+
+  const infraEmoji: Record<string, string> = {
+    road: "🛤️", bridge: "🌉", aqueduct: "🚰", wall: "🏰",
+    harbor: "⚓", lighthouse: "🗼", sewers: "🚿"
+  };
+
+  let section = `## 🏗️ INFRASTRUCTURE
+
+| Structure | Level | Condition | Status |
+|-----------|-------|-----------|--------|`;
+
+  for (const i of context.infrastructure) {
+    const emoji = infraEmoji[i.type] || "🔧";
+    const status = i.isUnderConstruction ? `Building (${i.constructionProgress}%)` : "Active";
+    const conditionIcon = i.condition >= 80 ? "✓" : i.condition >= 50 ? "~" : "⚠️";
+    section += `\n| ${emoji} ${i.type} | ${i.level} | ${conditionIcon} ${i.condition}% | ${status} |`;
+  }
+
+  section += `\n\n**Active Bonuses (applied automatically):**`;
+  section += `\n- Trade efficiency: +${context.totalBonuses.tradeBonus}% (affects caravan profits)`;
+  section += `\n- Defense strength: +${context.totalBonuses.defenseBonus}% (affects combat outcomes)`;
+  section += `\n- Travel speed: +${context.totalBonuses.travelSpeed}% (reduces caravan travel time)`;
+  section += `\n- Trade route risk: reduced by infrastructure quality`;
+
+  if (context.totalBonuses.defenseBonus > 0) {
+    section += `\n\n💡 Your infrastructure provides combat advantages. Walls and bridges make your territory harder to conquer.`;
+  }
+
+  if (context.totalBonuses.tradeBonus > 0) {
+    section += `\n💡 Roads and harbors are boosting your trade income. Consider expanding trade routes.`;
+  }
+
+  return section;
+}
+
+// =============================================
+// DYNASTY CONTEXT SECTION
+// =============================================
+
+function buildDynastySection(context?: DynastyContext): string {
+  if (!context) return "";
+
+  const sections: string[] = [];
+
+  if (context.currentDynasty) {
+    sections.push(`## 👑 DYNASTY: ${context.currentDynasty.name}
+- Generations: ${context.currentDynasty.generations}
+- Prestige: ${context.currentDynasty.prestige}
+- Inheritance: ${context.currentDynasty.inheritanceRule}`);
+  }
+
+  // Succession status
+  const riskLevel = context.successionStatus.successionRisk >= 70 ? "🔴 CRITICAL" :
+                    context.successionStatus.successionRisk >= 40 ? "🟡 CONCERNING" : "🟢 STABLE";
+
+  let successionSection = `### Succession Status: ${riskLevel}`;
+  if (context.successionStatus.hasHeir) {
+    successionSection += `\n- Heir: **${context.successionStatus.heirName}** (age ${context.successionStatus.heirAge})`;
+  } else {
+    successionSection += `\n- ⚠️ **NO DESIGNATED HEIR** - succession crisis possible!`;
+  }
+  if (context.successionStatus.rivalClaimants > 0) {
+    successionSection += `\n- Rival claimants: ${context.successionStatus.rivalClaimants}`;
+  }
+  sections.push(successionSection);
+
+  // Marriage opportunities
+  if (context.marriageOpportunities.length > 0) {
+    let marriages = `### 💒 Marriage Opportunities\n`;
+    for (const m of context.marriageOpportunities.slice(0, 3)) {
+      marriages += `- **${m.characterName}** → ${m.targetTerritory}: ${m.politicalBenefit}\n`;
+    }
+    sections.push(marriages);
+  }
+
+  return sections.join("\n\n");
+}
+
+// =============================================
+// ROMANCE CONTEXT SECTION
+// =============================================
+
+function buildRomanceSection(context?: RomanceContext): string {
+  if (!context) return "";
+  if (context.activeRomances.length === 0 && context.recentScandals.length === 0) return "";
+
+  const sections: string[] = [];
+
+  if (context.activeRomances.length > 0) {
+    let romances = `## 💕 COURT ROMANCES\n`;
+    for (const r of context.activeRomances) {
+      const typeIcon = r.type === "affair" ? "🔥" : r.type === "courtship" ? "💐" : "❤️";
+      const warning = r.isAdulterous ? " ⚠️ ADULTEROUS" : r.isSecret ? " 🤫 Secret" : "";
+      romances += `- ${typeIcon} ${r.person1} & ${r.person2} (${r.type})${warning}\n`;
+      if (r.scandalRisk > 50) {
+        romances += `  - Scandal risk: ${r.scandalRisk}%\n`;
+      }
+    }
+    sections.push(romances);
+  }
+
+  if (context.recentScandals.length > 0) {
+    sections.push(`### 😱 Recent Scandals\n${context.recentScandals.map(s => `- ${s}`).join("\n")}`);
+  }
+
+  return sections.join("\n\n");
+}
+
+// =============================================
+// FRIENDSHIP CONTEXT SECTION
+// =============================================
+
+function buildFriendshipSection(context?: FriendshipContext): string {
+  if (!context) return "";
+  if (context.notableFriendships.length === 0) return "";
+
+  let section = `## 🤝 NOTABLE FRIENDSHIPS\n`;
+
+  for (const f of context.notableFriendships.slice(0, 5)) {
+    const typeIcon = f.type === "sworn_brother" ? "⚔️" : f.type === "best_friend" ? "💎" : "🤝";
+    section += `- ${typeIcon} **${f.character1}** & **${f.character2}** (${f.type.replace(/_/g, " ")})\n`;
+  }
+
+  if (context.swornBrotherhoodsCount > 0) {
+    section += `\n*${context.swornBrotherhoodsCount} sworn brotherhoods - these bonds are unbreakable.*`;
+  }
+
+  if (context.isolatedCharacters.length > 0) {
+    section += `\n\n⚠️ **Isolated Characters:** ${context.isolatedCharacters.join(", ")} - they have no close bonds.`;
+  }
+
+  return section;
+}
+
+// =============================================
+// MENTAL HEALTH CONTEXT SECTION
+// =============================================
+
+function buildMentalHealthSection(context?: MentalHealthContext): string {
+  if (!context) return "";
+  if (context.troubledCharacters.length === 0) return "";
+
+  let section = `## 🧠 MENTAL HEALTH CONCERNS\n`;
+
+  // INTERCONNECTION: Check if RULER has mental health issues that affect decision-making
+  const rulerWithIssues = context.troubledCharacters.find((c) => c.role === "ruler");
+  if (rulerWithIssues) {
+    section += `\n### ⚠️ RULER MENTAL STATE WARNING\n`;
+
+    // Madness types affect decisions differently
+    if (rulerWithIssues.issues.madnessType) {
+      switch (rulerWithIssues.issues.madnessType) {
+        case "paranoid":
+          section += `**YOUR RULER IS PARANOID.** They see threats everywhere and trust no one.\n`;
+          section += `- Decision impact: May overreact to minor threats, suspect allies of betrayal, waste resources on security\n`;
+          section += `- Consider: Paranoid decisions often backfire. Avoid hasty accusations or preemptive attacks.\n\n`;
+          break;
+        case "megalomaniac":
+          section += `**YOUR RULER HAS MEGALOMANIA.** They believe they are destined for greatness.\n`;
+          section += `- Decision impact: May pursue reckless expansion, underestimate enemies, ignore advisors\n`;
+          section += `- Consider: Grand ambitions often lead to overextension. Temper expansion with caution.\n\n`;
+          break;
+        case "violent":
+          section += `**YOUR RULER HAS VIOLENT TENDENCIES.** They prefer force over diplomacy.\n`;
+          section += `- Decision impact: May choose war over peace, execute prisoners, alienate allies\n`;
+          section += `- Consider: Violence breeds resentment. Diplomatic solutions may serve you better.\n\n`;
+          break;
+        case "delusional":
+          section += `**YOUR RULER IS DELUSIONAL.** They may not perceive reality accurately.\n`;
+          section += `- Decision impact: May pursue impossible goals, ignore real threats, waste resources on fantasies\n`;
+          section += `- Consider: Ground decisions in reality. Verify information before acting.\n\n`;
+          break;
+        case "depressive":
+          section += `**YOUR RULER SUFFERS FROM DEPRESSIVE MADNESS.** They see only doom.\n`;
+          section += `- Decision impact: May neglect opportunities, fail to defend, make defeatist choices\n`;
+          section += `- Consider: Depression distorts perception. There may be hope even in dark times.\n\n`;
+          break;
+        case "manic":
+          section += `**YOUR RULER IS IN A MANIC STATE.** They have boundless energy but poor judgment.\n`;
+          section += `- Decision impact: May start many projects, make impulsive decisions, overcommit resources\n`;
+          section += `- Consider: Manic energy can be destructive. Focus on completing existing tasks.\n\n`;
+          break;
+      }
+    }
+
+    // Severe depression affects decisions
+    if (rulerWithIssues.issues.depression > 70) {
+      section += `**SEVERE DEPRESSION:** Your ruler struggles to see hope or take decisive action.\n`;
+      section += `- May miss opportunities, delay important decisions, choose passive options\n\n`;
+    }
+
+    // High trauma affects decisions
+    if (rulerWithIssues.issues.trauma > 70) {
+      section += `**SEVERE TRAUMA:** Your ruler carries deep wounds that cloud judgment.\n`;
+      section += `- May avoid situations similar to past trauma, react emotionally to triggers\n\n`;
+    }
+
+    // PTSD affects combat-related decisions
+    if (rulerWithIssues.issues.hasPTSD) {
+      section += `**PTSD:** Your ruler has post-traumatic stress from past horrors.\n`;
+      section += `- Combat and war decisions may be affected by flashbacks and avoidance\n\n`;
+    }
+
+    // Low sanity is a general warning
+    if (rulerWithIssues.issues.sanity < 30) {
+      section += `**⚠️ CRITICAL: RULER SANITY AT ${rulerWithIssues.issues.sanity}%**\n`;
+      section += `Your ruler's grip on reality is tenuous. All decisions should be scrutinized.\n`;
+      section += `Seek treatment immediately or consider succession before disaster strikes.\n\n`;
+    } else if (rulerWithIssues.issues.sanity < 50) {
+      section += `**LOW SANITY (${rulerWithIssues.issues.sanity}%):** Your ruler's judgment is impaired.\n`;
+      section += `- Decisions may be erratic. Consider treatment at a healing sanctuary.\n\n`;
+    }
+  }
+
+  // List all troubled characters
+  section += `### Court Mental Health Status:\n`;
+  for (const c of context.troubledCharacters) {
+    let issues: string[] = [];
+    if (c.issues.trauma > 50) issues.push(`trauma (${c.issues.trauma}%)`);
+    if (c.issues.depression > 50) issues.push(`depression (${c.issues.depression}%)`);
+    if (c.issues.hasPTSD) issues.push("PTSD");
+    if (c.issues.madnessType) issues.push(`madness: ${c.issues.madnessType}`);
+    if (c.issues.sanity < 50) issues.push(`low sanity (${c.issues.sanity}%)`);
+
+    const urgency = c.needsTreatment ? "⚠️ NEEDS HELP" : "";
+    section += `- **${c.name}** (${c.role}): ${issues.join(", ")} ${urgency}\n`;
+  }
+
+  if (context.hasHealingSanctuary) {
+    section += `\n✓ You have a healing sanctuary for treatment.`;
+  } else {
+    section += `\n⚠️ No healing sanctuary - consider building one for mental health care.`;
+  }
+
+  if (context.recentTraumas.length > 0) {
+    section += `\n\n**Recent Traumas:** ${context.recentTraumas.slice(0, 3).join("; ")}`;
+  }
+
+  return section;
+}
+
+// =============================================
+// ADDICTION CONTEXT SECTION
+// =============================================
+
+function buildAddictionSection(context?: AddictionContext): string {
+  if (!context) return "";
+  if (context.addictedCharacters.length === 0) return "";
+
+  let section = `## 🍺 ADDICTION PROBLEMS\n`;
+
+  for (const a of context.addictedCharacters) {
+    const severityIcon = a.severity === "crippling" ? "💀" : a.severity === "severe" ? "🔴" : a.severity === "moderate" ? "🟡" : "🟢";
+    section += `- ${severityIcon} **${a.name}** (${a.role}): ${a.addictionType} addiction (${a.severity})
+  - Functionality: -${a.functionalityImpact}% | Wealth drain: ${a.wealthDrain}/month\n`;
+  }
+
+  if (context.hasProhibition) {
+    section += `\n✓ Prohibition is in effect (mixed results).`;
+  }
+
+  return section;
+}
+
+// =============================================
+// WAR DEMOGRAPHICS CONTEXT SECTION
+// =============================================
+
+function buildWarDemographicsSection(context?: WarDemographicsContext): string {
+  if (!context) return "";
+
+  const statusIcon = context.manpowerStatus === "critical" ? "🔴" :
+                     context.manpowerStatus === "strained" ? "🟡" :
+                     context.manpowerStatus === "adequate" ? "🟢" : "💪";
+
+  let section = `## ⚔️ MILITARY MANPOWER: ${statusIcon} ${context.manpowerStatus.toUpperCase()}
+
+| Category | Count |
+|----------|-------|
+| Eligible Men (16-50) | ${context.fightingPopulation.eligibleMen} |
+| Current Soldiers | ${context.fightingPopulation.currentSoldiers} |
+| Reserves | ${context.fightingPopulation.reserves} |
+| % of Population | ${context.fightingPopulation.percentageOfPopulation}% |`;
+
+  if (context.warCasualties.recentDeaths > 0 || context.warCasualties.widows > 0) {
+    section += `\n\n### War's Toll
+- Recent deaths: ${context.warCasualties.recentDeaths}
+- Widows: ${context.warCasualties.widows}
+- Orphans: ${context.warCasualties.orphans}
+- Disabled veterans: ${context.warCasualties.disabledVeterans}`;
+  }
+
+  if (!context.canConscriptMore) {
+    section += `\n\n⚠️ **Cannot conscript more** - manpower exhausted!`;
+  }
+
+  return section;
+}
+
+// =============================================
+// GENDER DYNAMICS CONTEXT SECTION
+// =============================================
+
+function buildGenderSection(context?: GenderContext): string {
+  if (!context) return "";
+
+  const progressLabel = context.currentRoles.progressLevel >= 80 ? "Progressive" :
+                        context.currentRoles.progressLevel >= 50 ? "Moderate" :
+                        context.currentRoles.progressLevel >= 20 ? "Traditional" : "Restrictive";
+
+  let section = `## ⚖️ GENDER ROLES: ${progressLabel}
+
+| Right | Status |
+|-------|--------|
+| Women can work | ${context.currentRoles.womenCanWork ? "✓" : "✗"} |
+| Women can own property | ${context.currentRoles.womenCanOwn ? "✓" : "✗"} |
+| Women can rule | ${context.currentRoles.womenCanRule ? "✓" : "✗"} |
+| Women can fight | ${context.currentRoles.womenCanFight ? "✓" : "✗"} |`;
+
+  if (context.workforceImpact.restrictionCost > 0) {
+    section += `\n\n📊 **Workforce Impact:** Current labor pool: ${context.workforceImpact.currentLaborPool}
+*If progressive: +${context.workforceImpact.potentialIfProgressive - context.workforceImpact.currentLaborPool} additional workers*`;
+  }
+
+  if (context.socialTension > 40) {
+    section += `\n\n⚠️ Social tension from gender issues: ${context.socialTension}%`;
+  }
+
+  return section;
+}
+
+// =============================================
+// EXPEDITION CONTEXT SECTION
+// =============================================
+
+function buildExpeditionSection(context?: ExpeditionContext): string {
+  if (!context) return "";
+  if (context.activeExpeditions.length === 0 && context.unexploredDirections.length === 0) return "";
+
+  const sections: string[] = [];
+
+  if (context.activeExpeditions.length > 0) {
+    let expeditions = `## 🧭 ACTIVE EXPEDITIONS\n`;
+    for (const e of context.activeExpeditions) {
+      const statusIcon = e.status === "exploring" ? "🔍" : e.status === "returning" ? "🏠" : e.status === "lost" ? "❓" : "🚶";
+      expeditions += `\n### ${statusIcon} ${e.direction.toUpperCase()} Expedition
+- Leader: ${e.leaderName || "Unknown"}
+- Crew: ${e.explorerCount} explorers, ${e.soldierCount} soldiers
+- Status: ${e.status}
+- Return in: ${e.daysUntilReturn} months`;
+      if (e.discoveries.length > 0) {
+        expeditions += `\n- Discoveries: ${e.discoveries.join(", ")}`;
+      }
+    }
+    sections.push(expeditions);
+  }
+
+  if (context.unexploredDirections.length > 0) {
+    sections.push(`🗺️ **Unexplored Directions:** ${context.unexploredDirections.join(", ")}`);
+  }
+
+  return sections.join("\n\n");
+}
+
+// =============================================
+// TRADE CONTEXT SECTION
+// =============================================
+
+function buildTradeSection(context?: TradeContext): string {
+  if (!context) return "";
+
+  const sections: string[] = [];
+
+  if (context.activeTradeRoutes.length > 0) {
+    let routes = `## 💰 TRADE ROUTES\n\n| Partner | Goods | Profit | Status |
+|---------|-------|--------|--------|`;
+    for (const r of context.activeTradeRoutes) {
+      const profitIcon = r.profitability >= 50 ? "📈" : r.profitability >= 20 ? "📊" : "📉";
+      routes += `\n| ${r.partnerTerritory} | ${r.goods} | ${profitIcon} ${r.profitability}% | ${r.isActive ? "Active" : "Inactive"} |`;
+    }
+    sections.push(routes);
+  }
+
+  if (context.caravans.inTransit > 0 || context.caravans.recentRaids > 0) {
+    let caravans = `### Caravan Activity
+- In transit: ${context.caravans.inTransit}
+- Recent arrivals: ${context.caravans.recentArrivals}`;
+    if (context.caravans.recentRaids > 0) {
+      caravans += `\n- ⚠️ Recent raids: ${context.caravans.recentRaids}`;
+    }
+    sections.push(caravans);
+  }
+
+  const trend = context.marketPrices.trend === "rising" ? "📈" : context.marketPrices.trend === "falling" ? "📉" : "📊";
+  sections.push(`### Market Prices ${trend}
+Food: ${context.marketPrices.food} | Goods: ${context.marketPrices.goods} | Luxuries: ${context.marketPrices.luxuries}`);
+
+  return sections.join("\n\n");
+}
+
+// =============================================
+// DISEASE CONTEXT SECTION
+// =============================================
+
+function buildDiseaseSection(context?: DiseaseContext): string {
+  if (!context) return "";
+  if (context.activeOutbreaks.length === 0 && context.diseaseRisk.level < 30) return "";
+
+  const sections: string[] = [];
+
+  if (context.activeOutbreaks.length > 0) {
+    let outbreaks = `## 🦠 DISEASE OUTBREAKS\n`;
+    for (const o of context.activeOutbreaks) {
+      const severityIcon = o.severity === "pandemic" ? "💀" : o.severity === "epidemic" ? "🔴" : "🟡";
+      outbreaks += `\n### ${severityIcon} ${o.diseaseName} (${o.severity})
+- Infected: ${o.infected}
+- Deaths: ${o.deaths}
+- Spread rate: ${o.spreadRate}%/month`;
+    }
+    sections.push(outbreaks);
+
+    if (context.quarantineActive) {
+      sections.push(`✓ **Quarantine in effect** - limiting spread.`);
+    } else {
+      sections.push(`⚠️ No quarantine - disease spreading freely!`);
+    }
+  }
+
+  if (context.diseaseRisk.level >= 30) {
+    sections.push(`### Disease Risk: ${context.diseaseRisk.level}%
+Factors: ${context.diseaseRisk.factors.join(", ")}`);
+  }
+
+  sections.push(`Healers available: ${context.healerCount}`);
+
+  return sections.join("\n\n");
+}
+
+// =============================================
+// REBELLION CONTEXT SECTION
+// =============================================
+
+function buildRebellionSection(context?: RebellionContext): string {
+  if (!context) return "";
+  if (context.activeRebellions.length === 0 && context.overallStability >= 70) return "";
+
+  const sections: string[] = [];
+
+  const stabilityIcon = context.overallStability >= 70 ? "🟢" : context.overallStability >= 40 ? "🟡" : "🔴";
+  sections.push(`## ⚠️ INTERNAL STABILITY: ${stabilityIcon} ${context.overallStability}%`);
+
+  if (context.activeRebellions.length > 0) {
+    let rebellions = `### 🔥 ACTIVE REBELLIONS\n`;
+    for (const r of context.activeRebellions) {
+      rebellions += `- **${r.factionName}** - Strength: ${r.strength}\n`;
+    }
+    sections.push(rebellions);
+  }
+
+  if (context.factionUnrest.length > 0) {
+    let unrest = `### Faction Unrest\n`;
+    for (const f of context.factionUnrest.filter(f => f.unrestLevel > 30)) {
+      const riskIcon = f.willingness_to_revolt >= 70 ? "🔴" : f.willingness_to_revolt >= 40 ? "🟡" : "🟢";
+      unrest += `- ${riskIcon} **${f.factionName}**: ${f.unrestLevel}% unrest
+  - Demands: ${f.demands.slice(0, 2).join(", ")}\n`;
+    }
+    sections.push(unrest);
+  }
+
+  if (context.recentGrievances.length > 0) {
+    sections.push(`**Recent Grievances:** ${context.recentGrievances.slice(0, 3).join("; ")}`);
+  }
+
+  return sections.join("\n\n");
+}
+
+// =============================================
+// LEGITIMACY CONTEXT SECTION
+// =============================================
+
+function buildLegitimacySection(context?: LegitimacyContext): string {
+  if (!context) return "";
+
+  const legitimacyIcon = context.ruler.legitimacyScore >= 70 ? "👑" :
+                         context.ruler.legitimacyScore >= 40 ? "⚖️" : "⚠️";
+
+  let section = `## ${legitimacyIcon} RULER LEGITIMACY: ${context.ruler.name}
+
+| Support Base | Level |
+|--------------|-------|
+| Legitimacy Score | ${context.ruler.legitimacyScore}% |
+| Popular Support | ${context.ruler.popularSupport}% |
+| Noble Support | ${context.ruler.nobleSupport}% |
+| Military Support | ${context.ruler.militarySupport}% |
+
+**Legitimacy Sources:** ${context.legitimacySources.join(", ")}`;
+
+  if (context.threats.length > 0) {
+    section += `\n\n⚠️ **Threats:** ${context.threats.join(", ")}`;
+  }
+
+  if (context.overthrowRisk >= 30) {
+    const riskLevel = context.overthrowRisk >= 70 ? "HIGH" : context.overthrowRisk >= 50 ? "MODERATE" : "LOW";
+    section += `\n\n🔴 **Overthrow Risk: ${riskLevel}** (${context.overthrowRisk}%)`;
+  }
+
+  if (context.recentActions.negative.length > 0) {
+    section += `\n\n**Recent unpopular actions:** ${context.recentActions.negative.slice(0, 2).join("; ")}`;
+  }
+
+  return section;
+}
+
+// =============================================
+// ECONOMY & TREASURY SECTION
+// =============================================
+// Shows the territory's financial health, taxes, and economic decisions
+
+function buildEconomySection(context?: EconomyContext): string {
+  if (!context) return "";
+
+  const healthIcon = context.economicHealth === "booming" ? "📈" :
+                     context.economicHealth === "growing" ? "📊" :
+                     context.economicHealth === "stable" ? "⚖️" :
+                     context.economicHealth === "struggling" ? "📉" : "💀";
+
+  const phaseIcon = context.treasury.economicPhase === "modern" ? "🏦" :
+                    context.treasury.economicPhase === "paper" ? "📜" :
+                    context.treasury.economicPhase === "banking" ? "🏛️" :
+                    context.treasury.economicPhase === "coined" ? "🪙" :
+                    context.treasury.economicPhase === "commodity" ? "⚖️" : "🔄";
+
+  let section = `## ${healthIcon} ECONOMY: ${context.economicHealth.toUpperCase()}
+
+| Treasury | Amount |
+|----------|--------|
+| Gold Coins | ${context.treasury.goldCoins} |
+| Silver Coins | ${context.treasury.silverCoins} |
+| Copper Coins | ${context.treasury.copperCoins} |
+| Total Debt | ${context.treasury.totalDebt} |
+| Monthly Balance | ${context.treasury.lastMonthBalance >= 0 ? "+" : ""}${context.treasury.lastMonthBalance} |
+
+**Economic Phase:** ${phaseIcon} ${context.treasury.economicPhase.charAt(0).toUpperCase() + context.treasury.economicPhase.slice(1)}
+**Credit Rating:** ${context.treasury.creditRating}/100
+**Inflation:** ${context.treasury.inflationRate.toFixed(1)}%`;
+
+  if (context.treasury.debasementLevel > 10) {
+    section += `\n⚠️ **Currency Debasement:** ${context.treasury.debasementLevel}% (reducing trust in your coins)`;
+  }
+
+  // Tax information
+  section += `\n\n### Tax Policy
+| Tax Type | Rate |
+|----------|------|
+| Land Tax | ${context.taxes.landTaxRate}% |
+| Trade Tax | ${context.taxes.tradeTaxRate}% |
+| Poll Tax | ${context.taxes.pollTaxRate}% |
+| Luxury Tax | ${context.taxes.luxuryTaxRate}% |
+
+Collection Efficiency: ${context.taxes.collectionEfficiency}%
+Tax Evaders: ${context.taxes.taxEvaders}%
+Happiness Impact: ${context.taxes.happinessImpact}`;
+
+  // Labor market
+  section += `\n\n### Labor Market
+- Unskilled Wage: ${context.laborMarket.unskilledWage} coins
+- Skilled Wage: ${context.laborMarket.skilledWage} coins
+- Unemployment: ${context.laborMarket.unemployment}%
+- Work Conditions: ${context.laborMarket.workConditions}`;
+
+  // Active loans
+  if (context.activeLoans.length > 0) {
+    section += `\n\n### Outstanding Loans`;
+    for (const loan of context.activeLoans) {
+      section += `\n- ${loan.lenderType}: ${loan.amount} coins at ${loan.interestRate}% (${loan.monthsRemaining} months left)`;
+    }
+    const totalDebt = context.activeLoans.reduce((sum, l) => sum + l.amount, 0);
+    if (totalDebt > context.treasury.totalWealth * 0.5) {
+      section += `\n⚠️ **WARNING:** Heavy debt burden!`;
+    }
+  }
+
+  // Banks
+  if (context.bankCount > 0) {
+    section += `\n\n🏦 **Banks:** ${context.bankCount} (enabling advanced finance)`;
+  }
+
+  // Price controls
+  if (context.priceControls.length > 0) {
+    section += `\n\n**Active Price Controls:** ${context.priceControls.join(", ")}`;
+  }
+
+  // Economic advice based on situation
+  section += `\n\n### Economic Considerations`;
+  if (context.treasury.inflationRate > 20) {
+    section += `\n- 🔴 HIGH INFLATION: Your currency is losing value rapidly. Stop minting/debasing!`;
+  }
+  if (context.treasury.totalDebt > 0 && context.treasury.creditRating < 30) {
+    section += `\n- 🔴 POOR CREDIT: You may not be able to borrow more. Risk of default!`;
+  }
+  if (context.laborMarket.unemployment > 25) {
+    section += `\n- ⚠️ HIGH UNEMPLOYMENT: Many without work. Consider public works or lower taxes.`;
+  }
+  if (context.economicHealth === "booming") {
+    section += `\n- 📈 BOOM TIME: Economy is thriving! Good time to invest or save for hard times.`;
+  }
+
+  return section;
+}
+
+// =============================================
+// RELIGION INFLUENCE SECTION
+// =============================================
+// Shows how the territory's faith influences decision-making
+// Religion has historically been the primary framework for morality and decisions
+
+function buildReligionSection(context?: ReligionContext): string {
+  if (!context || !context.stateReligion) return "";
+
+  const sections: string[] = [];
+  const religion = context.stateReligion;
+
+  sections.push(`## ⛪ YOUR FAITH: ${religion.name}
+
+*Your people worship ${religion.deity}. Faith shapes everything - from marriage to war, from laws to daily customs. Your decisions should honor your beliefs.*`);
+
+  // Religious beliefs that guide decisions
+  if (religion.beliefs && religion.beliefs.length > 0) {
+    let beliefGuidance = `### Your Sacred Beliefs\n`;
+    beliefGuidance += `These are the truths your people hold sacred:\n\n`;
+
+    for (const belief of religion.beliefs) {
+      // Interpret how each belief affects decisions
+      let implication = "";
+
+      if (belief.includes("sacred") || belief.includes("protected")) {
+        implication = "→ Avoid unnecessary bloodshed and cruelty";
+      } else if (belief.includes("afterlife") || belief.includes("rewards")) {
+        implication = "→ Your people will sacrifice for the faith, knowing paradise awaits";
+      } else if (belief.includes("ancestors")) {
+        implication = "→ Honor traditions and protect family honor";
+      } else if (belief.includes("Nature") || belief.includes("divine")) {
+        implication = "→ Protect the land, avoid excessive exploitation";
+      } else if (belief.includes("Strength") || belief.includes("weakness")) {
+        implication = "→ Show no weakness, military strength is virtue";
+      } else if (belief.includes("Compassion")) {
+        implication = "→ Care for the weak and poor, avoid cruelty";
+      } else if (belief.includes("Knowledge") || belief.includes("enlightenment")) {
+        implication = "→ Build schools and libraries, value scholars";
+      } else if (belief.includes("community") || belief.includes("Duty")) {
+        implication = "→ Collective good over individual desires";
+      } else if (belief.includes("War is holy")) {
+        implication = "→ Holy wars against enemies of the faith are righteous";
+      } else if (belief.includes("Peace")) {
+        implication = "→ Seek diplomatic solutions, war is last resort";
+      } else if (belief.includes("ruler") && belief.includes("divine")) {
+        implication = "→ Your rule is divinely ordained, rebellion is sin";
+      } else if (belief.includes("equal")) {
+        implication = "→ Treat all classes fairly, avoid exploitation";
+      }
+
+      beliefGuidance += `- **"${belief}"** ${implication}\n`;
+    }
+
+    sections.push(beliefGuidance);
+  }
+
+  // Religious practices
+  if (religion.practices && religion.practices.length > 0) {
+    let practiceGuidance = `### Sacred Practices\n`;
+    practiceGuidance += `These rituals bind your community together:\n`;
+
+    for (const practice of religion.practices) {
+      practiceGuidance += `- ${practice}\n`;
+    }
+
+    // Marriage emphasis
+    if (religion.practices.includes("Marriage ceremonies")) {
+      practiceGuidance += `\n**Marriage is a sacred institution.** Arrange marriages with proper religious ceremony. Same-faith marriages are blessed; interfaith unions may cause tension.`;
+    }
+
+    sections.push(practiceGuidance);
+  }
+
+  // Tolerance level affects diplomacy
+  const toleranceDesc = religion.tolerance > 70 ? "accepting of other faiths" :
+                        religion.tolerance > 40 ? "cautiously tolerant of other faiths" :
+                        religion.tolerance > 20 ? "suspicious of other faiths" :
+                        "hostile to other faiths - they are heretics";
+
+  sections.push(`### Religious Tolerance: ${religion.tolerance}/100
+Your religion is **${toleranceDesc}**.
+${religion.tolerance < 40 ? "Consider: Convert or conquer those who follow false gods." : "Consider: Trade and diplomacy with other faiths is acceptable."}`);
+
+  // Piety status
+  let pietyAdvice = "";
+  if (context.rulerPiety > 70) {
+    pietyAdvice = `✨ **You are deeply pious (${context.rulerPiety}/100).** Your faith guides every decision. The faithful trust you.`;
+  } else if (context.rulerPiety > 40) {
+    pietyAdvice = `🙏 **You are moderately pious (${context.rulerPiety}/100).** Faith matters to you, but so do practical concerns.`;
+  } else {
+    pietyAdvice = `⚠️ **Your piety is low (${context.rulerPiety}/100).** The faithful may question your devotion. Consider building temples or holding religious festivals.`;
+  }
+
+  sections.push(`### Your Personal Faith
+${pietyAdvice}
+
+**Religious Infrastructure:**
+- Temples: ${context.templeCount}
+- Priests: ${context.priestCount}
+- Average Population Piety: ${Math.round(context.averagePopulationPiety)}/100`);
+
+  return sections.join("\n\n");
+}
+
+// =============================================
 // ORGANIC KNOWLEDGE PROGRESSION SECTION
 // =============================================
 // Shows the AI what skills their people have and what technologies
@@ -1411,6 +3952,89 @@ ${techLines.join("\n")}
     sections.push(`### Recent Breakthroughs!
 ${context.recentBreakthroughs.map(t => `- Your people discovered: **${t}**`).join("\n")}`);
   }
+
+  return sections.join("\n\n");
+}
+
+// =============================================
+// EDUCATION & WORKFORCE SKILLS SECTION
+// =============================================
+
+export interface EducationContext {
+  schools: Array<{ type: string; students: number; capacity: number }>;
+  literacyRate: number;
+  apprenticeCount: number;
+  childrenInSchool: number;
+  totalChildren: number;
+  skilledWorkers: Record<string, { count: number; maxLevel: number }>;
+  blockedActions?: Array<{ actionId: string; reason: string }>;
+}
+
+function buildEducationSection(context?: EducationContext): string {
+  if (!context) return "";
+
+  const sections: string[] = [];
+  sections.push("## 📚 Education & Skilled Workers");
+
+  // Education overview
+  const educationLines: string[] = [];
+  educationLines.push(`- **Literacy Rate:** ${context.literacyRate.toFixed(0)}% of population can read/write`);
+
+  if (context.schools.length > 0) {
+    const schoolSummary = context.schools.map(s => `${s.type} (${s.students}/${s.capacity})`).join(", ");
+    educationLines.push(`- **Schools:** ${schoolSummary}`);
+  } else {
+    educationLines.push("- **Schools:** None - children learn only by watching adults (slow, limited to 15% of adult skill)");
+  }
+
+  if (context.apprenticeCount > 0) {
+    educationLines.push(`- **Apprentices:** ${context.apprenticeCount} learning from masters (can reach 90% of master's skill)`);
+  }
+
+  if (context.totalChildren > 0) {
+    const schooled = context.childrenInSchool;
+    const unschooled = context.totalChildren - schooled;
+    if (unschooled > 0) {
+      educationLines.push(`- **Children:** ${context.totalChildren} (${schooled} in school, ${unschooled} NOT in school - consider building schools!)`);
+    } else {
+      educationLines.push(`- **Children:** ${context.totalChildren} (all in school!)`);
+    }
+  }
+
+  sections.push(educationLines.join("\n"));
+
+  // Skilled workers summary
+  if (Object.keys(context.skilledWorkers).length > 0) {
+    const skillLines: string[] = ["### Skilled Workers Available"];
+    const sortedSkills = Object.entries(context.skilledWorkers)
+      .sort((a, b) => b[1].maxLevel - a[1].maxLevel)
+      .slice(0, 8);
+
+    for (const [skill, data] of sortedSkills) {
+      const tier = data.maxLevel >= 70 ? "Expert" : data.maxLevel >= 40 ? "Skilled" : "Novice";
+      skillLines.push(`- **${skill}:** ${data.count} workers (${tier}, best level: ${data.maxLevel})`);
+    }
+    sections.push(skillLines.join("\n"));
+  } else {
+    sections.push("### Skilled Workers: NONE - Your population lacks specialized skills. Build schools and train apprentices!");
+  }
+
+  // Blocked actions due to missing skills
+  if (context.blockedActions && context.blockedActions.length > 0) {
+    const blockedLines: string[] = ["### ⚠️ Actions Blocked (Missing Skills)"];
+    for (const blocked of context.blockedActions.slice(0, 5)) {
+      blockedLines.push(`- **${blocked.actionId}:** ${blocked.reason}`);
+    }
+    blockedLines.push("\n*Train workers or hire specialists to unlock these actions!*");
+    sections.push(blockedLines.join("\n"));
+  }
+
+  sections.push(`### 💡 Education Tips
+- **Schools:** Children learn 3x faster than trial-and-error
+- **Libraries:** Literate adults can self-study up to level 60
+- **Apprenticeships:** Young people can reach 90% of master's skill
+- **Universities:** Advanced learning up to level 75, +25% breakthrough chance
+- **Knowledge persists:** Next generation inherits what this generation teaches!`);
 
   return sections.join("\n\n");
 }
@@ -1553,7 +4177,28 @@ export function buildDecisionPrompt(
   engagementContext?: EngagementContext,
   personalityParams?: PersonalityParams,
   organicGrowthContext?: OrganicGrowthContext,
-  knowledgeContext?: KnowledgeContext
+  knowledgeContext?: KnowledgeContext,
+  espionageContext?: EspionageContext,
+  religionContext?: ReligionContext,
+  educationContext?: EducationContext,
+  sabotageContext?: SabotageMotiveContext,
+  // NEW: 15 additional context systems
+  weatherContext?: WeatherContext,
+  disasterContext?: DisasterContext,
+  infrastructureContext?: InfrastructureContext,
+  dynastyContext?: DynastyContext,
+  romanceContext?: RomanceContext,
+  friendshipContext?: FriendshipContext,
+  mentalHealthContext?: MentalHealthContext,
+  addictionContext?: AddictionContext,
+  warDemographicsContext?: WarDemographicsContext,
+  genderContext?: GenderContext,
+  expeditionContext?: ExpeditionContext,
+  tradeContext?: TradeContext,
+  diseaseContext?: DiseaseContext,
+  rebellionContext?: RebellionContext,
+  legitimacyContext?: LegitimacyContext,
+  economyContext?: EconomyContext
 ): string {
   const seasonNames = ["Early Winter", "Late Winter", "Early Spring", "Spring", "Late Spring", "Early Summer", "Summer", "Late Summer", "Early Autumn", "Autumn", "Late Autumn", "Winter"];
   const seasonDisplay = seasonNames[worldContext.month - 1];
@@ -1564,6 +4209,33 @@ export function buildDecisionPrompt(
 
   // Build knowledge section (organic tech progression)
   const knowledgeSection = buildKnowledgeSection(knowledgeContext);
+
+  // Build espionage section (spy intelligence)
+  const espionageSection = buildEspionageSection(espionageContext);
+
+  // Build sabotage section (motivations for covert action)
+  const sabotageSection = buildSabotageSection(sabotageContext);
+
+  // Build religion section (faith-based guidance)
+  const religionSection = buildReligionSection(religionContext);
+
+  // Build all 15 new context sections
+  const weatherSection = buildWeatherSection(weatherContext);
+  const disasterSection = buildDisasterSection(disasterContext);
+  const infrastructureSection = buildInfrastructureSection(infrastructureContext);
+  const dynastySection = buildDynastySection(dynastyContext);
+  const romanceSection = buildRomanceSection(romanceContext);
+  const friendshipSection = buildFriendshipSection(friendshipContext);
+  const mentalHealthSection = buildMentalHealthSection(mentalHealthContext);
+  const addictionSection = buildAddictionSection(addictionContext);
+  const warDemographicsSection = buildWarDemographicsSection(warDemographicsContext);
+  const genderSection = buildGenderSection(genderContext);
+  const expeditionSection = buildExpeditionSection(expeditionContext);
+  const tradeSection = buildTradeSection(tradeContext);
+  const diseaseSection = buildDiseaseSection(diseaseContext);
+  const rebellionSection = buildRebellionSection(rebellionContext);
+  const legitimacySection = buildLegitimacySection(legitimacyContext);
+  const economySection = buildEconomySection(economyContext);
 
   // Get governance and identity info
   const tribeName = (territory as any).tribeName || "unnamed tribe";
@@ -1621,6 +4293,46 @@ ${survivalSection}
 ${buildEngagementSection(engagementContext)}
 
 ${knowledgeSection}
+
+${buildEducationSection(educationContext)}
+
+${espionageSection}
+
+${sabotageSection}
+
+${religionSection}
+
+${weatherSection}
+
+${disasterSection}
+
+${infrastructureSection}
+
+${dynastySection}
+
+${romanceSection}
+
+${friendshipSection}
+
+${mentalHealthSection}
+
+${addictionSection}
+
+${warDemographicsSection}
+
+${genderSection}
+
+${expeditionSection}
+
+${tradeSection}
+
+${diseaseSection}
+
+${rebellionSection}
+
+${legitimacySection}
+
+${economySection}
 
 ${buildCompetitionSection(territory, otherTerritories)}
 
@@ -1686,6 +4398,20 @@ ${a.description}
 4. **COMPETITION** - How does this action help you WIN? Which victory path are you pursuing?
 5. **YOUR PERSONALITY** - Make decisions that align with your strategic personality traits!
 6. **THREATS & OPPORTUNITIES** - Who's ahead? Who can you ally with? Who must you stop?
+
+## 🎯 GUT FEELING DECISIONS - Trust Your Instincts!
+
+**As a ruler, sometimes you just KNOW what your people need without analyzing every detail.**
+
+Ask yourself these instinctive questions:
+
+- **Do my people feel WEAK?** → Consider "harden_people" to toughen them through rigorous training
+- **Is our bloodline deteriorating?** → Consider "strengthen_bloodline" to sire strong offspring, or "selective_marriages" for better genetics
+- **Are our children too soft?** → Consider "spartan_upbringing" for warrior training from youth
+- **Is the population a burden?** → The dark choice of "cull_the_weak" removes the unproductive (high cost to morale)
+- **Can't decide rationally?** → Use "trust_instincts" and describe what your gut tells you
+
+**These are gut decisions - they're not always optimal but they're HUMAN. A wise ruler balances logic with instinct. Sometimes you need to feel what's right rather than calculate it.**
 
 **REMEMBER: Dead people can't win. A civilization reduced to 0 population is ELIMINATED.**
 
