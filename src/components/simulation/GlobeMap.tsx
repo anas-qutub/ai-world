@@ -201,6 +201,9 @@ export function GlobeMap({
       };
     }).filter(Boolean);
 
+    // Clear any existing points data (remove dots)
+    globeRef.current.pointsData([]);
+
     globeRef.current
       .polygonsData(polygonData)
       .polygonCapColor((d: any) => {
