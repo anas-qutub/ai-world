@@ -96,7 +96,7 @@ export function GlobeMap({
       const THREE = await import("three");
 
       const globe = Globe()(container)
-        .globeImageUrl("//unpkg.com/three-globe/example/img/earth-dark.jpg")
+        .globeImageUrl("//unpkg.com/three-globe/example/img/earth-blue-marble.jpg")
         .bumpImageUrl("//unpkg.com/three-globe/example/img/earth-topology.png")
         .backgroundImageUrl("//unpkg.com/three-globe/example/img/night-sky.png")
         .showAtmosphere(true)
@@ -222,11 +222,11 @@ export function GlobeMap({
       .polygonCapColor((d: any) => {
         const color = d.properties.color;
         const isSelected = d.properties.isSelected;
-        // Parse hex color and add transparency
+        // Parse hex color and add transparency - show Earth texture through
         const r = parseInt(color.slice(1, 3), 16);
         const g = parseInt(color.slice(3, 5), 16);
         const b = parseInt(color.slice(5, 7), 16);
-        const alpha = isSelected ? 0.6 : 0.35;
+        const alpha = isSelected ? 0.5 : 0.25;
         return `rgba(${r}, ${g}, ${b}, ${alpha})`;
       })
       .polygonSideColor((d: any) => {
