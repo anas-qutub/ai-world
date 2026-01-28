@@ -10,6 +10,7 @@ import { TimeDisplay } from "@/components/controls/TimeDisplay";
 import { ActivityFeed } from "@/components/feed/ActivityFeed";
 import { HistoryTimeline } from "@/components/feed/HistoryTimeline";
 import { StatsDashboard } from "@/components/simulation/StatsDashboard";
+import { LoadingScreen } from "@/components/ui/LoadingScreen";
 import { Id } from "../../convex/_generated/dataModel";
 import { Globe2, Activity, Clock, BarChart3 } from "lucide-react";
 
@@ -23,6 +24,7 @@ export default function Home() {
     useState<Id<"territories"> | null>(null);
   const [feedView, setFeedView] = useState<"activity" | "history" | "stats">("activity");
   const [show3DModal, setShow3DModal] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
 
   // Fetch selected territory data for 3D modal
   const selectedTerritoryData = useQuery(
@@ -30,8 +32,13 @@ export default function Home() {
     selectedTerritoryId ? { id: selectedTerritoryId } : "skip"
   );
 
+  // Show loading screen on initial load
+  if (isLoading) {
+    return <LoadingScreen onLoadComplete={() => setIsLoading(false)} minDisplayTime={2500} />;
+  }
+
   return (
-    <div className="h-screen flex flex-col bg-[#0a0a0f] text-white overflow-hidden">
+    <div className="h-screen flex flex-col bg-[#0a0a0f] text-white overflow-hidden animate-fade-in">
       {/* Header - Clean and minimal */}
       <header className="flex-shrink-0 border-b border-white/10 bg-[#0a0a0f]/80 backdrop-blur-sm">
         <div className="px-6 py-3 flex items-center justify-between">
@@ -87,55 +94,74 @@ export default function Home() {
               }}
             />
           )}
+
+          {/* Hint overlay - shows when no territory selected */}
+          {!selectedTerritoryId && (
+            <div className="absolute bottom-8 left-1/2 -translate-x-1/2 pointer-events-none animate-fade-in">
+              <div className="px-4 py-2 rounded-full bg-white/5 backdrop-blur-sm border border-white/10">
+                <p className="text-white/50 text-sm">
+                  Click on a civilization to explore
+                </p>
+              </div>
+            </div>
+          )}
         </div>
 
-        {/* Right Sidebar */}
-        <aside className="w-[400px] flex flex-col border-l border-white/10 bg-[#0d0d14]">
-          {/* Territory Panel */}
-          <div className="flex-1 overflow-hidden">
-            <TerritoryPanel
-              territoryId={selectedTerritoryId}
-              onClose={() => setSelectedTerritoryId(null)}
-              onOpen3D={() => setShow3DModal(true)}
-            />
-          </div>
-
-          {/* Divider */}
-          <div className="h-px bg-white/10" />
-
-          {/* Feed Section */}
-          <div className="h-72 flex flex-col overflow-hidden">
-            {/* Tab buttons */}
-            <div className="flex border-b border-white/10">
-              {[
-                { id: "activity" as const, label: "Live Feed", icon: Activity },
-                { id: "history" as const, label: "Archive", icon: Clock },
-                { id: "stats" as const, label: "Analytics", icon: BarChart3 },
-              ].map(({ id, label, icon: Icon }) => (
-                <button
-                  key={id}
-                  onClick={() => setFeedView(id)}
-                  className={`flex-1 px-3 py-2.5 text-xs font-medium transition-all flex items-center justify-center gap-2 ${
-                    feedView === id
-                      ? "text-cyan-400 bg-cyan-400/5 border-b-2 border-cyan-400"
-                      : "text-white/50 hover:text-white/80 hover:bg-white/5"
-                  }`}
-                >
-                  <Icon className="w-3.5 h-3.5" />
-                  {label}
-                </button>
-              ))}
+        {/* Right Sidebar - Only shows when territory is selected */}
+        <aside
+          className={`flex flex-col border-l border-white/10 bg-[#0d0d14] transition-all duration-300 ease-out ${
+            selectedTerritoryId
+              ? "w-[400px] opacity-100"
+              : "w-0 opacity-0 overflow-hidden"
+          }`}
+        >
+          <div className="w-[400px] h-full flex flex-col">
+            {/* Territory Panel */}
+            <div className="flex-1 overflow-hidden">
+              <TerritoryPanel
+                territoryId={selectedTerritoryId}
+                onClose={() => setSelectedTerritoryId(null)}
+                onOpen3D={() => setShow3DModal(true)}
+              />
             </div>
 
-            {/* Feed content */}
-            <div className="flex-1 overflow-hidden">
-              {feedView === "activity" ? (
-                <ActivityFeed limit={20} />
-              ) : feedView === "history" ? (
-                <HistoryTimeline />
-              ) : (
-                <StatsDashboard />
-              )}
+            {/* Divider */}
+            <div className="h-px bg-white/10" />
+
+            {/* Feed Section */}
+            <div className="h-72 flex flex-col overflow-hidden">
+              {/* Tab buttons */}
+              <div className="flex border-b border-white/10">
+                {[
+                  { id: "activity" as const, label: "Live Feed", icon: Activity },
+                  { id: "history" as const, label: "Archive", icon: Clock },
+                  { id: "stats" as const, label: "Analytics", icon: BarChart3 },
+                ].map(({ id, label, icon: Icon }) => (
+                  <button
+                    key={id}
+                    onClick={() => setFeedView(id)}
+                    className={`flex-1 px-3 py-2.5 text-xs font-medium transition-all flex items-center justify-center gap-2 ${
+                      feedView === id
+                        ? "text-cyan-400 bg-cyan-400/5 border-b-2 border-cyan-400"
+                        : "text-white/50 hover:text-white/80 hover:bg-white/5"
+                    }`}
+                  >
+                    <Icon className="w-3.5 h-3.5" />
+                    {label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Feed content */}
+              <div className="flex-1 overflow-hidden">
+                {feedView === "activity" ? (
+                  <ActivityFeed limit={20} />
+                ) : feedView === "history" ? (
+                  <HistoryTimeline />
+                ) : (
+                  <StatsDashboard />
+                )}
+              </div>
             </div>
           </div>
         </aside>

@@ -5,7 +5,7 @@ import { useQuery } from "convex/react";
 import { api } from "../../../convex/_generated/api";
 import { Id } from "../../../convex/_generated/dataModel";
 
-// Territory center coordinates [lat, lng]
+// Territory center coordinates for camera focus
 const TERRITORY_CENTERS: Record<string, { lat: number; lng: number }> = {
   "North America": { lat: 40, lng: -100 },
   "Europe": { lat: 50, lng: 10 },
@@ -13,6 +13,45 @@ const TERRITORY_CENTERS: Record<string, { lat: number; lng: number }> = {
   "Asia": { lat: 35, lng: 100 },
   "South America": { lat: -15, lng: -60 },
   "Australia": { lat: -25, lng: 135 },
+};
+
+// Simplified continent polygon coordinates [lng, lat] format for GeoJSON
+const CONTINENT_POLYGONS: Record<string, number[][][]> = {
+  "North America": [[
+    [-168, 65], [-168, 72], [-141, 70], [-130, 72], [-120, 75],
+    [-85, 75], [-65, 65], [-55, 50], [-67, 45], [-70, 43],
+    [-75, 35], [-80, 25], [-85, 20], [-90, 17], [-95, 17],
+    [-105, 20], [-117, 32], [-124, 40], [-125, 48], [-130, 55],
+    [-140, 60], [-150, 60], [-160, 58], [-168, 65]
+  ]],
+  "South America": [[
+    [-80, 10], [-75, 12], [-60, 10], [-50, 5], [-35, -5],
+    [-35, -20], [-40, -22], [-48, -28], [-55, -35], [-65, -55],
+    [-75, -50], [-75, -40], [-70, -18], [-80, -5], [-80, 10]
+  ]],
+  "Europe": [[
+    [-10, 36], [-10, 45], [-5, 48], [0, 50], [5, 52],
+    [10, 55], [15, 55], [25, 60], [30, 70], [40, 70],
+    [50, 55], [45, 45], [40, 42], [30, 40], [25, 35],
+    [20, 35], [10, 38], [0, 38], [-10, 36]
+  ]],
+  "Africa": [[
+    [-17, 15], [-15, 28], [-5, 35], [10, 37], [25, 32],
+    [35, 30], [42, 12], [50, 12], [50, -10], [42, -25],
+    [35, -35], [20, -35], [15, -30], [12, -20], [10, -5],
+    [-5, 5], [-15, 10], [-17, 15]
+  ]],
+  "Asia": [[
+    [50, 42], [55, 55], [60, 70], [80, 75], [100, 78],
+    [140, 75], [170, 65], [170, 60], [145, 45], [140, 35],
+    [130, 30], [120, 22], [105, 10], [95, 5], [80, 8],
+    [75, 15], [70, 25], [60, 30], [50, 35], [50, 42]
+  ]],
+  "Australia": [[
+    [113, -20], [115, -35], [120, -35], [130, -32], [140, -38],
+    [150, -38], [155, -28], [150, -22], [145, -15], [142, -10],
+    [135, -12], [130, -15], [125, -15], [120, -18], [113, -20]
+  ]],
 };
 
 interface GlobeMapProps {
@@ -39,7 +78,6 @@ export function GlobeMap({
     let isMounted = true;
     const container = containerRef.current;
 
-    // Dynamic import for globe.gl (browser-only library)
     import("globe.gl").then(async (GlobeModule) => {
       if (!isMounted || !container) return;
 
@@ -47,18 +85,18 @@ export function GlobeMap({
       const THREE = await import("three");
 
       const globe = Globe()(container)
-        .globeImageUrl("//unpkg.com/three-globe/example/img/earth-blue-marble.jpg")
+        .globeImageUrl("//unpkg.com/three-globe/example/img/earth-dark.jpg")
         .bumpImageUrl("//unpkg.com/three-globe/example/img/earth-topology.png")
         .backgroundImageUrl("//unpkg.com/three-globe/example/img/night-sky.png")
         .showAtmosphere(true)
         .atmosphereColor("#00d4ff")
-        .atmosphereAltitude(0.25)
+        .atmosphereAltitude(0.2)
         .pointOfView({ lat: 20, lng: 0, altitude: 2.5 });
 
-      // Add clouds layer
+      // Add subtle clouds layer
       const CLOUDS_IMG_URL = "//unpkg.com/three-globe/example/img/clouds.png";
-      const CLOUDS_ALT = 0.004;
-      const CLOUDS_ROTATION_SPEED = -0.006;
+      const CLOUDS_ALT = 0.003;
+      const CLOUDS_ROTATION_SPEED = -0.004;
 
       new THREE.TextureLoader().load(CLOUDS_IMG_URL, (cloudsTexture) => {
         if (!isMounted) return;
@@ -71,12 +109,11 @@ export function GlobeMap({
           new THREE.MeshPhongMaterial({
             map: cloudsTexture,
             transparent: true,
-            opacity: 0.4,
+            opacity: 0.25,
           })
         );
         globe.scene().add(clouds);
 
-        // Animate clouds rotation
         (function rotateClouds() {
           if (!isMounted) return;
           clouds.rotation.y += CLOUDS_ROTATION_SPEED * Math.PI / 180;
@@ -84,7 +121,7 @@ export function GlobeMap({
         })();
       });
 
-      // Enable auto-rotation
+      // Globe controls
       globe.controls().autoRotate = true;
       globe.controls().autoRotateSpeed = 0.3;
       globe.controls().enableZoom = true;
@@ -93,7 +130,6 @@ export function GlobeMap({
 
       globeRef.current = globe;
 
-      // Set initial size based on container
       const { width, height } = container.getBoundingClientRect();
       if (width > 0 && height > 0) {
         globe.width(width).height(height);
@@ -114,7 +150,7 @@ export function GlobeMap({
     };
   }, []);
 
-  // Handle resize with ResizeObserver for more reliable sizing
+  // Handle resize
   useEffect(() => {
     if (!containerRef.current) return;
 
@@ -127,82 +163,137 @@ export function GlobeMap({
       }
     };
 
-    // Use ResizeObserver for reliable container size tracking
-    const resizeObserver = new ResizeObserver(() => {
-      handleResize();
-    });
+    const resizeObserver = new ResizeObserver(() => handleResize());
     resizeObserver.observe(containerRef.current);
-
-    // Also listen to window resize as fallback
     window.addEventListener("resize", handleResize);
-
-    // Initial size
     handleResize();
 
     return () => {
       resizeObserver.disconnect();
       window.removeEventListener("resize", handleResize);
     };
-  }, [isLoading]); // Re-run when loading completes
+  }, [isLoading]);
 
-  // Update points (territory markers)
+  // Update polygon regions (highlighted territories)
   useEffect(() => {
     if (!globeRef.current || !territories) return;
 
-    const territoryById = new Map(territories.map((t) => [t._id.toString(), t]));
-
-    const pointsData = territories.map((territory) => {
-      const center = TERRITORY_CENTERS[territory.name];
-      if (!center) return null;
+    // Create GeoJSON features for each territory
+    const polygonData = territories.map((territory) => {
+      const coords = CONTINENT_POLYGONS[territory.name];
+      if (!coords) return null;
 
       const isSelected = selectedTerritoryId === territory._id;
       const tribeName = (territory as any).tribeName;
 
       return {
-        lat: center.lat,
-        lng: center.lng,
-        size: isSelected ? 1.5 : 0.8,
-        color: territory.color,
-        territory,
-        label: tribeName || territory.name,
-        isSelected,
+        type: "Feature",
+        properties: {
+          territory,
+          isSelected,
+          label: tribeName || territory.name,
+          color: territory.color,
+        },
+        geometry: {
+          type: "Polygon",
+          coordinates: coords,
+        },
       };
     }).filter(Boolean);
 
     globeRef.current
-      .pointsData(pointsData)
-      .pointAltitude((d: any) => d.isSelected ? 0.1 : 0.02)
-      .pointColor((d: any) => d.color)
-      .pointRadius((d: any) => d.size)
-      .pointResolution(12)
-      .onPointClick((point: any) => {
-        if (point?.territory) {
-          onSelectTerritory(point.territory._id);
-          // Stop auto-rotation and focus on point
-          globeRef.current.controls().autoRotate = false;
-          globeRef.current.pointOfView(
-            { lat: point.lat, lng: point.lng, altitude: 1.8 },
-            1000
-          );
+      .polygonsData(polygonData)
+      .polygonCapColor((d: any) => {
+        const color = d.properties.color;
+        const isSelected = d.properties.isSelected;
+        // Parse hex color and add transparency
+        const r = parseInt(color.slice(1, 3), 16);
+        const g = parseInt(color.slice(3, 5), 16);
+        const b = parseInt(color.slice(5, 7), 16);
+        const alpha = isSelected ? 0.6 : 0.35;
+        return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+      })
+      .polygonSideColor((d: any) => {
+        const color = d.properties.color;
+        const r = parseInt(color.slice(1, 3), 16);
+        const g = parseInt(color.slice(3, 5), 16);
+        const b = parseInt(color.slice(5, 7), 16);
+        return `rgba(${r}, ${g}, ${b}, 0.2)`;
+      })
+      .polygonStrokeColor((d: any) => {
+        const isSelected = d.properties.isSelected;
+        return isSelected ? "#ffffff" : d.properties.color;
+      })
+      .polygonAltitude((d: any) => d.properties.isSelected ? 0.02 : 0.006)
+      .polygonLabel((d: any) => {
+        const props = d.properties;
+        return `
+          <div style="
+            background: rgba(0,0,0,0.8);
+            padding: 8px 12px;
+            border-radius: 8px;
+            border: 1px solid ${props.color};
+            font-family: 'Exo 2', sans-serif;
+          ">
+            <div style="color: ${props.color}; font-weight: 600; font-size: 14px;">
+              ${props.label}
+            </div>
+            <div style="color: rgba(255,255,255,0.6); font-size: 11px; margin-top: 2px;">
+              ${props.territory.name}
+            </div>
+          </div>
+        `;
+      })
+      .onPolygonClick((polygon: any) => {
+        if (polygon?.properties?.territory) {
+          const territory = polygon.properties.territory;
+          onSelectTerritory(territory._id);
+
+          // Stop auto-rotation and focus on region
+          const center = TERRITORY_CENTERS[territory.name];
+          if (center) {
+            globeRef.current.controls().autoRotate = false;
+            globeRef.current.pointOfView(
+              { lat: center.lat, lng: center.lng, altitude: 1.8 },
+              1000
+            );
+          }
         }
       })
-      .onPointHover((point: any) => {
+      .onPolygonHover((polygon: any) => {
         if (containerRef.current) {
-          containerRef.current.style.cursor = point ? "pointer" : "grab";
+          containerRef.current.style.cursor = polygon ? "pointer" : "grab";
         }
       });
 
-    // Add labels
+    // Add territory name labels at center of each region
+    const labelData = territories.map((territory) => {
+      const center = TERRITORY_CENTERS[territory.name];
+      if (!center) return null;
+
+      const tribeName = (territory as any).tribeName;
+      const isSelected = selectedTerritoryId === territory._id;
+
+      return {
+        lat: center.lat,
+        lng: center.lng,
+        text: (tribeName || territory.name).toUpperCase(),
+        color: isSelected ? "#ffffff" : "rgba(255,255,255,0.8)",
+        size: isSelected ? 1.0 : 0.7,
+        altitude: isSelected ? 0.04 : 0.015,
+      };
+    }).filter(Boolean);
+
     globeRef.current
-      .labelsData(pointsData)
+      .labelsData(labelData)
       .labelLat((d: any) => d.lat)
       .labelLng((d: any) => d.lng)
-      .labelText((d: any) => d.label?.toUpperCase() || "")
-      .labelSize((d: any) => d.isSelected ? 1.2 : 0.8)
-      .labelDotRadius((d: any) => 0)
-      .labelColor((d: any) => d.isSelected ? "#ffffff" : "rgba(255,255,255,0.7)")
+      .labelText((d: any) => d.text)
+      .labelSize((d: any) => d.size)
+      .labelDotRadius(0)
+      .labelColor((d: any) => d.color)
       .labelResolution(2)
-      .labelAltitude((d: any) => d.isSelected ? 0.12 : 0.03);
+      .labelAltitude((d: any) => d.altitude);
 
   }, [territories, selectedTerritoryId, onSelectTerritory]);
 
@@ -211,7 +302,6 @@ export function GlobeMap({
     if (!globeRef.current || !territories || !relationships) return;
 
     const territoryById = new Map(territories.map((t) => [t._id.toString(), t]));
-
     const arcsData: any[] = [];
 
     relationships.forEach((rel) => {
@@ -229,18 +319,18 @@ export function GlobeMap({
           let dashGap = 0;
 
           if (rel.hasAlliance) {
-            color = "#a855f7"; // Purple
+            color = "#a855f7";
             strokeWidth = 2;
           } else if (rel.hasTradeAgreement) {
-            color = "#22c55e"; // Green
+            color = "#22c55e";
             strokeWidth = 1.5;
             dashLength = 0.5;
             dashGap = 0.3;
           } else if (rel.status === "at_war") {
-            color = "#ef4444"; // Red
+            color = "#ef4444";
             strokeWidth = 3;
           } else if (rel.status === "hostile") {
-            color = "#f59e0b"; // Amber
+            color = "#f59e0b";
             strokeWidth = 1.5;
             dashLength = 0.2;
             dashGap = 0.2;
@@ -269,7 +359,7 @@ export function GlobeMap({
       .arcDashLength((d: any) => d.dashLength || 1)
       .arcDashGap((d: any) => d.dashGap || 0)
       .arcDashAnimateTime(2000)
-      .arcAltitude(0.15)
+      .arcAltitude(0.1)
       .arcAltitudeAutoScale(0.3);
 
   }, [territories, relationships]);
@@ -293,7 +383,7 @@ export function GlobeMap({
 
   const dataLoading = !territories || !agents;
 
-  // Focus globe on a territory and select it (used by legend clicks)
+  // Focus and select territory (used by legend)
   const focusAndSelectTerritory = useCallback((territoryId: Id<"territories">) => {
     if (!globeRef.current || !territories) return;
 
@@ -309,13 +399,12 @@ export function GlobeMap({
       }
     }
 
-    // Select the territory (opens 3D view)
     onSelectTerritory(territoryId);
   }, [territories, onSelectTerritory]);
 
   return (
-    <div className="h-full bg-[var(--void)] relative overflow-hidden">
-      {/* Globe container - always rendered so ref exists */}
+    <div className="h-full bg-[#030507] relative overflow-hidden">
+      {/* Globe container */}
       <div
         ref={containerRef}
         className="w-full h-full"
@@ -324,13 +413,13 @@ export function GlobeMap({
 
       {/* Loading overlay */}
       {(isLoading || dataLoading) && (
-        <div className="absolute inset-0 flex items-center justify-center bg-[var(--void)]">
+        <div className="absolute inset-0 flex items-center justify-center bg-[#030507]">
           <div className="text-center">
             <div className="relative inline-block">
-              <div className="w-16 h-16 rounded-full border-2 border-[var(--cyber-cyan)] border-t-transparent animate-spin" />
-              <div className="absolute inset-2 rounded-full border border-[var(--cyber-cyan)]/30" />
+              <div className="w-16 h-16 rounded-full border-2 border-cyan-400 border-t-transparent animate-spin" />
+              <div className="absolute inset-2 rounded-full border border-cyan-400/30" />
             </div>
-            <p className="text-[var(--text-muted)] font-display text-sm tracking-wider mt-4">
+            <p className="text-white/40 font-display text-sm tracking-wider mt-4">
               {dataLoading ? "LOADING DATA" : "INITIALIZING GLOBE"}<span className="loading-dots" />
             </p>
           </div>
@@ -339,37 +428,61 @@ export function GlobeMap({
 
       {/* Legend */}
       {territories && agents && (
-      <div className="absolute bottom-4 left-4 z-20 bg-black/60 backdrop-blur-sm rounded-xl p-4 max-h-72 overflow-y-auto min-w-[160px]">
-        <h4 className="text-[10px] text-white/40 uppercase tracking-wider mb-3">
-          Civilizations
-        </h4>
-        <div className="space-y-1">
-          {territories.map((territory) => {
-            const tribeName = (territory as any).tribeName;
-            const isSelected = selectedTerritoryId === territory._id;
+        <div className="absolute bottom-4 left-4 z-20 bg-black/70 backdrop-blur-md rounded-xl p-4 border border-white/10">
+          <h4 className="text-[10px] text-white/40 uppercase tracking-wider mb-3 font-medium">
+            Civilizations
+          </h4>
+          <div className="space-y-1">
+            {territories.map((territory) => {
+              const tribeName = (territory as any).tribeName;
+              const isSelected = selectedTerritoryId === territory._id;
 
-            return (
-              <button
-                key={territory._id}
-                onClick={() => focusAndSelectTerritory(territory._id)}
-                className={`flex items-center gap-2.5 w-full px-2 py-1.5 rounded-lg transition-all ${
-                  isSelected
-                    ? "bg-white/10"
-                    : "hover:bg-white/5"
-                }`}
-              >
-                <div
-                  className="w-2.5 h-2.5 rounded-full flex-shrink-0"
-                  style={{ backgroundColor: territory.color }}
-                />
-                <span className="text-xs text-white/80 truncate">
-                  {tribeName || territory.name}
-                </span>
-              </button>
-            );
-          })}
+              return (
+                <button
+                  key={territory._id}
+                  onClick={() => focusAndSelectTerritory(territory._id)}
+                  className={`flex items-center gap-3 w-full px-2 py-1.5 rounded-lg transition-all ${
+                    isSelected
+                      ? "bg-white/15"
+                      : "hover:bg-white/5"
+                  }`}
+                >
+                  <div
+                    className="w-3 h-3 rounded-sm flex-shrink-0"
+                    style={{
+                      backgroundColor: territory.color,
+                      boxShadow: isSelected ? `0 0 8px ${territory.color}` : 'none'
+                    }}
+                  />
+                  <span className={`text-xs truncate ${isSelected ? 'text-white' : 'text-white/70'}`}>
+                    {tribeName || territory.name}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Relationship legend */}
+          <div className="mt-4 pt-3 border-t border-white/10">
+            <h4 className="text-[10px] text-white/40 uppercase tracking-wider mb-2 font-medium">
+              Relations
+            </h4>
+            <div className="space-y-1 text-[10px]">
+              <div className="flex items-center gap-2">
+                <div className="w-4 h-0.5 bg-purple-500 rounded" />
+                <span className="text-white/50">Alliance</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-4 h-0.5 bg-green-500 rounded" style={{ background: 'repeating-linear-gradient(90deg, #22c55e 0, #22c55e 3px, transparent 3px, transparent 5px)' }} />
+                <span className="text-white/50">Trade</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-4 h-0.5 bg-red-500 rounded" />
+                <span className="text-white/50">War</span>
+              </div>
+            </div>
+          </div>
         </div>
-      </div>
       )}
     </div>
   );
