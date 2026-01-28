@@ -3,7 +3,17 @@
 import { internalAction } from "../_generated/server";
 import { internal } from "../_generated/api";
 import { v } from "convex/values";
-import { buildDecisionPrompt, AVAILABLE_ACTIONS, EngagementContext, CharacterContext, TensionContext, RivalryContext, ProsperityContext, PersonalityParams, OrganicGrowthContext, MemoryContext, BondsContext, EmergentGoalContext } from "./prompts";
+import {
+  buildDecisionPrompt, AVAILABLE_ACTIONS,
+  EngagementContext, CharacterContext, TensionContext, RivalryContext, ProsperityContext,
+  PersonalityParams, OrganicGrowthContext, MemoryContext, BondsContext, EmergentGoalContext,
+  EspionageContext, ReligionContext, EducationContext, SabotageMotiveContext,
+  // 15 new context types + economy
+  WeatherContext, DisasterContext, InfrastructureContext, DynastyContext, RomanceContext,
+  FriendshipContext, MentalHealthContext, AddictionContext, WarDemographicsContext, GenderContext,
+  ExpeditionContext, TradeContext, DiseaseContext, RebellionContext, LegitimacyContext,
+  EconomyContext
+} from "./prompts";
 import { callAnthropic, AIDecisionResponse } from "./providers/anthropic";
 import { callOpenAI, isOpenAIAvailable } from "./providers/openai";
 import { callXAI, isXAIAvailable } from "./providers/xai";
@@ -96,6 +106,21 @@ export const makeDecision = internalAction({
         secretGoal: char.secretGoal,
         isPlotting: char.activePlots.length > 0,
         plotType: char.activePlots.length > 0 ? char.activePlots[0].plotType : undefined,
+        // Mental health data for madness-affected decisions
+        mentalHealth: char.mentalHealth ? {
+          sanity: char.mentalHealth.sanity,
+          trauma: char.mentalHealth.trauma,
+          depression: char.mentalHealth.depression,
+          anxiety: char.mentalHealth.anxiety,
+          ptsd: char.mentalHealth.ptsd,
+          madness: char.mentalHealth.madness as "paranoid" | "megalomaniac" | "violent" | "delusional" | "depressive" | "manic" | undefined,
+          inTherapy: char.mentalHealth.inTherapy,
+        } : undefined,
+        // Addiction data for impaired judgment
+        addiction: char.hasAddiction && char.addictionType ? {
+          type: char.addictionType as "alcohol" | "gambling" | "opium" | "other",
+          severity: "moderate" as const, // Default - will be updated from addictions table if available
+        } : undefined,
       });
 
       // Find ruler, heir, and other court members
@@ -180,12 +205,188 @@ export const makeDecision = internalAction({
 
     let organicGrowthContext: OrganicGrowthContext | undefined;
 
-    // Fetch organic growth data in parallel
-    const [agentMemories, agentBonds, agentGoals] = await Promise.all([
+    // Fetch organic growth data and all context data in parallel
+    const [
+      agentMemories, agentBonds, agentGoals,
+      espionageData, religionData, educationData, sabotageData,
+      // 15 new context fetches + economy
+      weatherData, disasterData, infrastructureData, dynastyData, romanceData,
+      friendshipData, mentalHealthData, addictionData, warDemographicsData, genderData,
+      expeditionData, tradeData, diseaseData, rebellionData, legitimacyData, economyData
+    ] = await Promise.all([
       ctx.runQuery(internal.ai.helpers.getAgentMemories, { agentId: args.agentId, limit: 10 }),
       ctx.runQuery(internal.ai.helpers.getAgentBonds, { territoryId: agent.territoryId }),
       ctx.runQuery(internal.ai.helpers.getAgentGoals, { agentId: args.agentId }),
+      ctx.runQuery(internal.ai.helpers.getEspionageContext, { territoryId: agent.territoryId }),
+      ctx.runQuery(internal.ai.helpers.getReligionContext, { territoryId: agent.territoryId }),
+      ctx.runQuery(internal.ai.helpers.getEducationContext, { territoryId: agent.territoryId }),
+      ctx.runQuery(internal.ai.helpers.getSabotageContext, { territoryId: agent.territoryId }),
+      // 15 new context queries + economy
+      ctx.runQuery(internal.ai.helpers.getWeatherContext, { territoryId: agent.territoryId }),
+      ctx.runQuery(internal.ai.helpers.getDisasterContext, { territoryId: agent.territoryId }),
+      ctx.runQuery(internal.ai.helpers.getInfrastructureContext, { territoryId: agent.territoryId }),
+      ctx.runQuery(internal.ai.helpers.getDynastyContext, { territoryId: agent.territoryId }),
+      ctx.runQuery(internal.ai.helpers.getRomanceContext, { territoryId: agent.territoryId }),
+      ctx.runQuery(internal.ai.helpers.getFriendshipContext, { territoryId: agent.territoryId }),
+      ctx.runQuery(internal.ai.helpers.getMentalHealthContext, { territoryId: agent.territoryId }),
+      ctx.runQuery(internal.ai.helpers.getAddictionContext, { territoryId: agent.territoryId }),
+      ctx.runQuery(internal.ai.helpers.getWarDemographicsContext, { territoryId: agent.territoryId }),
+      ctx.runQuery(internal.ai.helpers.getGenderContext, { territoryId: agent.territoryId }),
+      ctx.runQuery(internal.ai.helpers.getExpeditionContext, { territoryId: agent.territoryId }),
+      ctx.runQuery(internal.ai.helpers.getTradeContext, { territoryId: agent.territoryId }),
+      ctx.runQuery(internal.ai.helpers.getDiseaseContext, { territoryId: agent.territoryId }),
+      ctx.runQuery(internal.ai.helpers.getRebellionContext, { territoryId: agent.territoryId }),
+      ctx.runQuery(internal.ai.helpers.getLegitimacyContext, { territoryId: agent.territoryId }),
+      ctx.runQuery(internal.ai.helpers.getEconomyContext, { territoryId: agent.territoryId }),
     ]);
+
+    // Build espionage context for military decisions
+    let espionageContext: EspionageContext | undefined;
+    if (espionageData) {
+      espionageContext = {
+        activeSpies: espionageData.activeSpies,
+        capturedSpies: espionageData.capturedSpies,
+        counterIntelligence: espionageData.counterIntelligence,
+        intelligence: espionageData.intelligence,
+        knownEnemySpies: espionageData.knownEnemySpies,
+      };
+    }
+
+    // Build religion context for faith-influenced decisions
+    let religionContext: ReligionContext | undefined;
+    if (religionData) {
+      religionContext = {
+        stateReligion: religionData.stateReligion,
+        rulerPiety: religionData.rulerPiety,
+        templeCount: religionData.templeCount,
+        priestCount: religionData.priestCount,
+        averagePopulationPiety: religionData.averagePopulationPiety,
+      };
+    }
+
+    // Build education context for workforce skill decisions
+    let educationContext: EducationContext | undefined;
+    if (educationData) {
+      educationContext = {
+        schools: educationData.schools,
+        literacyRate: educationData.literacyRate,
+        apprenticeCount: educationData.apprenticeCount,
+        childrenInSchool: educationData.childrenInSchool,
+        totalChildren: educationData.totalChildren,
+        skilledWorkers: educationData.skilledWorkers,
+        blockedActions: educationData.blockedActions,
+      };
+    }
+
+    // Build sabotage motivation context for organic covert operations
+    let sabotageContext: SabotageMotiveContext | undefined;
+    if (sabotageData && sabotageData.pressure > 0) {
+      sabotageContext = {
+        pressure: sabotageData.pressure,
+        topMotives: sabotageData.topMotives,
+        suggestedTargets: sabotageData.suggestedTargets,
+      };
+    }
+
+    // =============================================
+    // BUILD ALL 15 NEW CONTEXT OBJECTS
+    // =============================================
+
+    // 1. Weather context
+    let weatherContext: WeatherContext | undefined;
+    if (weatherData) {
+      weatherContext = weatherData as WeatherContext;
+    }
+
+    // 2. Disaster context
+    let disasterContext: DisasterContext | undefined;
+    if (disasterData) {
+      disasterContext = disasterData as DisasterContext;
+    }
+
+    // 3. Infrastructure context
+    let infrastructureContext: InfrastructureContext | undefined;
+    if (infrastructureData) {
+      infrastructureContext = infrastructureData as InfrastructureContext;
+    }
+
+    // 4. Dynasty context
+    let dynastyContext: DynastyContext | undefined;
+    if (dynastyData) {
+      dynastyContext = dynastyData as DynastyContext;
+    }
+
+    // 5. Romance context
+    let romanceContext: RomanceContext | undefined;
+    if (romanceData) {
+      romanceContext = romanceData as RomanceContext;
+    }
+
+    // 6. Friendship context
+    let friendshipContext: FriendshipContext | undefined;
+    if (friendshipData) {
+      friendshipContext = friendshipData as FriendshipContext;
+    }
+
+    // 7. Mental health context
+    let mentalHealthContext: MentalHealthContext | undefined;
+    if (mentalHealthData) {
+      mentalHealthContext = mentalHealthData as MentalHealthContext;
+    }
+
+    // 8. Addiction context
+    let addictionContext: AddictionContext | undefined;
+    if (addictionData) {
+      addictionContext = addictionData as AddictionContext;
+    }
+
+    // 9. War demographics context
+    let warDemographicsContext: WarDemographicsContext | undefined;
+    if (warDemographicsData) {
+      warDemographicsContext = warDemographicsData as WarDemographicsContext;
+    }
+
+    // 10. Gender context
+    let genderContext: GenderContext | undefined;
+    if (genderData) {
+      genderContext = genderData as GenderContext;
+    }
+
+    // 11. Expedition context
+    let expeditionContext: ExpeditionContext | undefined;
+    if (expeditionData) {
+      expeditionContext = expeditionData as ExpeditionContext;
+    }
+
+    // 12. Trade context
+    let tradeContext: TradeContext | undefined;
+    if (tradeData) {
+      tradeContext = tradeData as TradeContext;
+    }
+
+    // 13. Disease context
+    let diseaseContext: DiseaseContext | undefined;
+    if (diseaseData) {
+      diseaseContext = diseaseData as DiseaseContext;
+    }
+
+    // 14. Rebellion context
+    let rebellionContext: RebellionContext | undefined;
+    if (rebellionData) {
+      rebellionContext = rebellionData as RebellionContext;
+    }
+
+    // 15. Legitimacy context
+    let legitimacyContext: LegitimacyContext | undefined;
+    if (legitimacyData) {
+      legitimacyContext = legitimacyData as LegitimacyContext;
+    }
+
+    // 16. Economy context
+    let economyContext: EconomyContext | undefined;
+    if (economyData) {
+      economyContext = economyData as EconomyContext;
+    }
 
     // Build memory context
     let memoryContext: MemoryContext | undefined;
@@ -312,7 +513,7 @@ export const makeDecision = internalAction({
       };
     }
 
-    // Build the prompt with personality parameters and organic growth context
+    // Build the prompt with personality parameters, organic growth context, and espionage intelligence
     const userPrompt = buildDecisionPrompt(
       territory,
       relationships.map((r: {
@@ -341,7 +542,29 @@ export const makeDecision = internalAction({
       otherTerritories,
       engagementContext,
       agent.personalityParams as PersonalityParams | undefined,
-      organicGrowthContext
+      organicGrowthContext,
+      undefined, // knowledgeContext - to be added later
+      espionageContext, // spy intelligence for military decisions
+      religionContext, // faith-based decision guidance
+      educationContext, // education & skilled workers context
+      sabotageContext, // organic sabotage motivations
+      // 15 new context systems + economy
+      weatherContext,
+      disasterContext,
+      infrastructureContext,
+      dynastyContext,
+      romanceContext,
+      friendshipContext,
+      mentalHealthContext,
+      addictionContext,
+      warDemographicsContext,
+      genderContext,
+      expeditionContext,
+      tradeContext,
+      diseaseContext,
+      rebellionContext,
+      legitimacyContext,
+      economyContext
     );
 
     // Call the AI provider based on agent configuration

@@ -1,5 +1,243 @@
 import { Doc, Id } from "../_generated/dataModel";
 import { MutationCtx, QueryCtx } from "../_generated/server";
+import { getMilestonePoints } from "./milestones";
+
+// =============================================
+// VICTORY SCORING - Combines power, milestones, achievements
+// =============================================
+
+export interface VictoryScoreBreakdown {
+  total: number;
+  powerScore: number;
+  milestonePoints: number;
+  eraBonus: number;
+  goldenAgeBonus: number;
+  underdogBonus: number;
+  statusPenalty: number; // Penalty for crisis/collapse
+}
+
+// Era bonuses for being first to reach each era
+export const ERA_BONUSES: Record<string, number> = {
+  stone_age: 0,
+  bronze_age: 20,
+  iron_age: 40,
+  medieval: 60,
+  renaissance: 80,
+  industrial: 100,
+  modern: 150,
+  atomic: 200,
+};
+
+// Status modifiers
+export const STATUS_MODIFIERS: Record<string, number> = {
+  stable: 0,
+  struggling: -10,
+  prospering: 10,
+  golden_age: 50,
+  decadent: -20,
+  crisis: -40,
+  collapsing: -80,
+  reforming: 5,
+};
+
+/**
+ * Calculate total victory score including milestones and bonuses
+ */
+export async function calculateVictoryScore(
+  ctx: QueryCtx | MutationCtx,
+  territory: Doc<"territories">,
+  relationships: Doc<"relationships">[]
+): Promise<VictoryScoreBreakdown> {
+  // Get base power score
+  const powerBreakdown = await calculatePowerScore(ctx, territory, relationships);
+  const powerScore = powerBreakdown.total;
+
+  // Get milestone points
+  const milestonePoints = await getMilestonePoints(ctx, territory._id);
+
+  // Calculate era bonus based on current era
+  const techs = await (ctx as QueryCtx).db
+    .query("technologies")
+    .withIndex("by_territory", (q) => q.eq("territoryId", territory._id))
+    .collect();
+
+  let currentEra = "stone_age";
+  const eraOrder = ["stone_age", "bronze_age", "iron_age", "medieval", "renaissance", "industrial", "modern", "atomic"];
+
+  for (const tech of techs.filter(t => t.researched)) {
+    // Determine era from tech (would need to lookup tech tree)
+    // For now, use a simplified check based on tech names
+    if (tech.techId.includes("nuclear") || tech.techId.includes("computer") || tech.techId.includes("space")) {
+      currentEra = "atomic";
+    } else if (tech.techId.includes("electricity") || tech.techId.includes("combustion")) {
+      if (eraOrder.indexOf("modern") > eraOrder.indexOf(currentEra)) currentEra = "modern";
+    } else if (tech.techId.includes("steam") || tech.techId.includes("factory")) {
+      if (eraOrder.indexOf("industrial") > eraOrder.indexOf(currentEra)) currentEra = "industrial";
+    } else if (tech.techId.includes("printing") || tech.techId.includes("banking")) {
+      if (eraOrder.indexOf("renaissance") > eraOrder.indexOf(currentEra)) currentEra = "renaissance";
+    } else if (tech.techId.includes("feudal") || tech.techId.includes("castle")) {
+      if (eraOrder.indexOf("medieval") > eraOrder.indexOf(currentEra)) currentEra = "medieval";
+    } else if (tech.techId.includes("iron")) {
+      if (eraOrder.indexOf("iron_age") > eraOrder.indexOf(currentEra)) currentEra = "iron_age";
+    } else if (tech.techId.includes("bronze")) {
+      if (eraOrder.indexOf("bronze_age") > eraOrder.indexOf(currentEra)) currentEra = "bronze_age";
+    }
+  }
+
+  const eraBonus = ERA_BONUSES[currentEra] || 0;
+
+  // Get rise and fall status for bonuses/penalties
+  const riseAndFall = await (ctx as QueryCtx).db
+    .query("riseAndFall")
+    .withIndex("by_territory", (q) => q.eq("territoryId", territory._id))
+    .first();
+
+  const status = riseAndFall?.status || "stable";
+  const statusPenalty = STATUS_MODIFIERS[status] || 0;
+
+  // Golden age bonus
+  const goldenAgeBonus = riseAndFall?.goldenAgeTicks && riseAndFall.goldenAgeTicks > 0 ? 50 : 0;
+
+  // Underdog bonus (already calculated in rise and fall)
+  const underdogBonus = riseAndFall?.underdogBonus || 0;
+
+  const total = powerScore + milestonePoints + eraBonus + goldenAgeBonus + underdogBonus + statusPenalty;
+
+  return {
+    total: Math.round(total * 10) / 10,
+    powerScore: Math.round(powerScore * 10) / 10,
+    milestonePoints,
+    eraBonus,
+    goldenAgeBonus,
+    underdogBonus,
+    statusPenalty,
+  };
+}
+
+/**
+ * Get victory rankings for all territories
+ */
+export async function getVictoryRankings(
+  ctx: QueryCtx | MutationCtx,
+  territories: Doc<"territories">[],
+  relationships: Doc<"relationships">[]
+): Promise<Array<{
+  rank: number;
+  territoryId: Id<"territories">;
+  territoryName: string;
+  color: string;
+  victoryScore: number;
+  breakdown: VictoryScoreBreakdown;
+  isEliminated: boolean;
+}>> {
+  const rankings = await Promise.all(
+    territories.map(async (territory) => {
+      const breakdown = await calculateVictoryScore(ctx, territory, relationships);
+
+      return {
+        rank: 0,
+        territoryId: territory._id,
+        territoryName: territory.tribeName || territory.name,
+        color: territory.color,
+        victoryScore: breakdown.total,
+        breakdown,
+        isEliminated: territory.isEliminated || false,
+      };
+    })
+  );
+
+  // Sort by victory score
+  rankings.sort((a, b) => {
+    if (a.isEliminated && !b.isEliminated) return 1;
+    if (!a.isEliminated && b.isEliminated) return -1;
+    return b.victoryScore - a.victoryScore;
+  });
+
+  // Assign ranks
+  rankings.forEach((r, i) => { r.rank = i + 1; });
+
+  return rankings;
+}
+
+// =============================================
+// VICTORY CONDITIONS
+// =============================================
+
+export type VictoryType =
+  | "domination"     // Eliminate all other civilizations
+  | "science"        // Reach space program
+  | "cultural"       // 500+ influence and 5+ world wonders
+  | "economic"       // 1000+ wealth
+  | "score"          // Highest score after certain ticks
+  | "nuclear_survival"; // Survive nuclear war while others collapse
+
+/**
+ * Check if any civilization has achieved victory
+ */
+export async function checkVictoryConditions(
+  ctx: QueryCtx,
+  territories: Doc<"territories">[]
+): Promise<{
+  hasVictor: boolean;
+  victor?: Id<"territories">;
+  victoryType?: VictoryType;
+  description?: string;
+} | null> {
+  const activeTerritories = territories.filter(t => !t.isEliminated);
+
+  // Domination Victory - only one civilization left
+  if (activeTerritories.length === 1) {
+    return {
+      hasVictor: true,
+      victor: activeTerritories[0]._id,
+      victoryType: "domination",
+      description: `${activeTerritories[0].tribeName || activeTerritories[0].name} has achieved DOMINATION VICTORY by eliminating all rivals!`,
+    };
+  }
+
+  for (const territory of activeTerritories) {
+    // Science Victory - reached space program
+    const hasSpaceProgram = await ctx.db
+      .query("technologies")
+      .withIndex("by_territory", (q) => q.eq("territoryId", territory._id))
+      .filter((q) => q.and(
+        q.eq(q.field("techId"), "space_program"),
+        q.eq(q.field("researched"), true)
+      ))
+      .first();
+
+    if (hasSpaceProgram) {
+      return {
+        hasVictor: true,
+        victor: territory._id,
+        victoryType: "science",
+        description: `${territory.tribeName || territory.name} has achieved SCIENCE VICTORY by developing a space program!`,
+      };
+    }
+
+    // Economic Victory - 1000+ wealth
+    if (territory.wealth >= 1000) {
+      return {
+        hasVictor: true,
+        victor: territory._id,
+        victoryType: "economic",
+        description: `${territory.tribeName || territory.name} has achieved ECONOMIC VICTORY with ${territory.wealth} wealth!`,
+      };
+    }
+
+    // Cultural Victory - 500+ influence and high culture
+    if (territory.influence >= 500 && territory.happiness >= 80) {
+      return {
+        hasVictor: true,
+        victor: territory._id,
+        victoryType: "cultural",
+        description: `${territory.tribeName || territory.name} has achieved CULTURAL VICTORY with global cultural dominance!`,
+      };
+    }
+  }
+
+  return null;
+}
 
 // Power Score Weights
 export const POWER_SCORE_WEIGHTS = {

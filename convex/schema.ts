@@ -68,14 +68,109 @@ export default defineSchema({
     naturalResources: v.optional(v.array(v.string())), // e.g., ["gold", "iron", "wheat"]
     // Accumulated civil unrest (natural tension system)
     unrest: v.optional(v.number()), // 0-∞, builds when happiness < expectations
-    // Survival mechanics
+    // Survival mechanics - Basic
     woodStockpile: v.optional(v.number()), // Wood for building and heating
     shelterCapacity: v.optional(v.number()), // How many people can be housed
     preservedFood: v.optional(v.number()), // Food preserved for winter (doesn't decay)
+
+    // Survival mechanics - Water
+    water: v.optional(v.object({
+      stored: v.number(),           // Water in storage
+      wells: v.number(),            // Number of wells
+      hasRiver: v.boolean(),        // Access to river
+      quality: v.number(),          // Water quality 0-100
+    })),
+
+    // Survival mechanics - Clothing
+    clothing: v.optional(v.object({
+      supply: v.number(),           // Clothing units available
+      condition: v.number(),        // Average condition 0-100
+    })),
+
+    // Survival mechanics - Sanitation
+    sanitation: v.optional(v.object({
+      wasteLevel: v.number(),       // Accumulated waste
+      sewerCapacity: v.number(),    // Waste handling capacity
+      latrines: v.number(),         // Number of latrines
+    })),
+
+    // Survival mechanics - Food Preservation
+    preservation: v.optional(v.object({
+      preservedFood: v.number(),    // Preserved food amount
+      salt: v.number(),             // Salt for preservation
+      smokehouses: v.number(),      // Number of smokehouses
+    })),
+
+    // Survival mechanics - Medicine
+    medicine: v.optional(v.object({
+      herbs: v.number(),            // Medicinal herbs
+    })),
+
+    // Sick population tracking
+    sickPopulation: v.optional(v.number()), // People currently sick
+
+    // Survival Technology Discoveries
+    discoveries: v.optional(v.object({
+      discovered: v.array(v.string()),      // Tech IDs that have been discovered
+      inProgress: v.array(v.object({
+        techId: v.string(),
+        progress: v.number(),               // 0-100
+        startTick: v.number(),
+      })),
+      recentDiscovery: v.optional(v.object({
+        techId: v.string(),
+        tick: v.number(),
+        discoveredBy: v.optional(v.string()), // Character name
+      })),
+    }))
     // Competition tracking - elimination mechanics
     isEliminated: v.optional(v.boolean()), // Territory has been eliminated
     eliminatedAtTick: v.optional(v.number()), // When they were eliminated
     lowPopulationStreak: v.optional(v.number()), // Consecutive ticks with pop < 5
+
+    // =============================================
+    // HUMAN LIFE SYSTEMS - GENDER DYNAMICS
+    // =============================================
+    genderRoles: v.optional(v.object({
+      womenCanWork: v.boolean(),      // Women allowed in workforce
+      womenCanOwn: v.boolean(),       // Women can own property
+      womenCanRule: v.boolean(),      // Women can be rulers
+      womenCanFight: v.boolean(),     // Women can serve in military
+      progressLevel: v.number(),      // 0-100, how progressive
+      lastReformTick: v.optional(v.number()),
+    })),
+
+    // =============================================
+    // HUMAN LIFE SYSTEMS - WAR DEMOGRAPHICS
+    // =============================================
+    fightingPopulation: v.optional(v.object({
+      eligibleMen: v.number(),        // Men 16-50 available
+      eligibleWomen: v.number(),      // Women 16-50 (if allowed to fight)
+      currentSoldiers: v.number(),    // Currently enlisted
+      reserves: v.number(),           // Trained but not active
+      casualties: v.number(),         // Lost in current/recent war
+      widows: v.number(),             // Women who lost husbands to war
+      orphans: v.number(),            // Children who lost fathers to war
+      warWeariness: v.number(),       // 0-100, population tired of war
+      lastConscriptionTick: v.optional(v.number()),
+      emergencyMeasures: v.optional(v.union(
+        v.literal("none"),
+        v.literal("expanded_age"),    // 14-60 instead of 16-50
+        v.literal("women_conscripted"), // Women forced to fight
+        v.literal("child_soldiers")   // Terrible option, massive happiness penalty
+      )),
+    })),
+
+    // =============================================
+    // HUMAN LIFE SYSTEMS - ESPIONAGE
+    // =============================================
+    spyNetwork: v.optional(v.object({
+      spymasterId: v.optional(v.id("characters")),
+      budget: v.number(),             // Wealth allocated to espionage
+      counterIntelligence: v.number(), // 0-100, ability to detect enemy spies
+      knownEnemySpies: v.number(),    // Number of enemy spies detected
+      ownSpiesActive: v.number(),     // Number of spies deployed
+    })),
   }).index("by_name", ["name"]),
 
   // AI agent configuration per territory
@@ -309,6 +404,12 @@ export default defineSchema({
     // Deep simulation additions
     warExhaustion: v.optional(v.number()), // 0-100, accumulated war fatigue
     warScore: v.optional(v.number()), // -100 to +100, who's winning
+    // Organic war emergence tracking
+    warCasusBelli: v.optional(v.string()), // Reason for war (casus belli)
+    lastAttackedBy: v.optional(v.id("territories")), // Who attacked last
+    lastAttackedTick: v.optional(v.number()), // When last attack occurred
+    recentIncidents: v.optional(v.number()), // Count of recent border incidents
+    lastIncidentTick: v.optional(v.number()), // When last incident occurred
   })
     .index("by_territories", ["territory1Id", "territory2Id"])
     .index("by_territory1", ["territory1Id"])
@@ -341,7 +442,10 @@ export default defineSchema({
       v.literal("breakthrough"),
       v.literal("crisis"),
       v.literal("population_boom"),
-      v.literal("system")
+      v.literal("system"),
+      v.literal("milestone"),      // First-to achievements
+      v.literal("world_event"),    // Global events (plagues, famines, etc.)
+      v.literal("nuclear")         // Nuclear-related events
     ),
     territoryId: v.optional(v.id("territories")),
     targetTerritoryId: v.optional(v.id("territories")),
@@ -1019,12 +1123,63 @@ export default defineSchema({
     isImprisoned: v.optional(v.boolean()),
     prisonSentenceTicks: v.optional(v.number()),
     prisonStartTick: v.optional(v.number()),
+
+    // =============================================
+    // HUMAN LIFE SYSTEMS - GENDER & DEMOGRAPHICS
+    // =============================================
+    gender: v.optional(v.union(v.literal("male"), v.literal("female"))),
+    canFight: v.optional(v.boolean()),     // Based on gender rules + age
+    fightingAge: v.optional(v.boolean()),  // True if 16-50 for men (default rules)
+
+    // =============================================
+    // HUMAN LIFE SYSTEMS - MARRIAGE
+    // =============================================
+    spouseId: v.optional(v.id("characters")),
+    marriageId: v.optional(v.id("marriages")),
+    isMarried: v.optional(v.boolean()),
+
+    // =============================================
+    // HUMAN LIFE SYSTEMS - MENTAL HEALTH
+    // =============================================
+    mentalHealth: v.optional(v.object({
+      sanity: v.number(),           // 0-100, overall mental stability
+      trauma: v.number(),           // 0-100, accumulated trauma
+      depression: v.number(),       // 0-100, sadness/hopelessness
+      anxiety: v.number(),          // 0-100, worry/fear
+      ptsd: v.boolean(),            // Has PTSD from traumatic events
+      madness: v.optional(v.union(
+        v.literal("paranoid"),      // Sees plots everywhere
+        v.literal("megalomaniac"),  // Believes they are destined for greatness
+        v.literal("violent"),       // Prone to violent outbursts
+        v.literal("delusional"),    // Believes false things
+        v.literal("depressive"),    // Deep chronic depression
+        v.literal("manic")          // Extreme mood swings
+      )),
+      inTherapy: v.boolean(),
+      therapyProgress: v.optional(v.number()), // 0-100
+      lastTraumaticEvent: v.optional(v.string()),
+      lastTraumaticEventTick: v.optional(v.number()),
+    })),
+
+    // =============================================
+    // HUMAN LIFE SYSTEMS - ADDICTION
+    // =============================================
+    hasAddiction: v.optional(v.boolean()),
+    addictionType: v.optional(v.string()),
+    addictionId: v.optional(v.id("addictions")),
+
+    // =============================================
+    // HUMAN LIFE SYSTEMS - FRIENDSHIP
+    // =============================================
+    bestFriendId: v.optional(v.id("characters")),
+    friendCount: v.optional(v.number()),
   })
     .index("by_territory", ["territoryId"])
     .index("by_role", ["role"])
     .index("by_alive", ["isAlive"])
     .index("by_profession", ["profession"])
-    .index("by_guild", ["guildId"]),
+    .index("by_guild", ["guildId"])
+    .index("by_gender", ["gender"]),
 
   // Succession events for drama
   successionEvents: defineTable({
@@ -1710,6 +1865,690 @@ export default defineSchema({
 
     // Staff
     wardenId: v.optional(v.id("characters")),
+  })
+    .index("by_territory", ["territoryId"]),
+
+  // =============================================
+  // VIEWER ENGAGEMENT SYSTEMS
+  // =============================================
+
+  // First-To Milestone Achievements
+  milestones: defineTable({
+    milestoneId: v.string(),         // "pop_100", "tech_writing", etc.
+    territoryId: v.id("territories"),
+    territoryName: v.string(),
+    achievedAtTick: v.number(),
+    achievedAtYear: v.number(),
+    points: v.number(),              // Victory points awarded
+    category: v.string(),            // "technology", "population", etc.
+  })
+    .index("by_milestone", ["milestoneId"])
+    .index("by_territory", ["territoryId"])
+    .index("by_category", ["category"]),
+
+  // World Events - global events affecting civilizations
+  worldEvents: defineTable({
+    eventId: v.string(),             // "great_plague", "gold_rush", etc.
+    startTick: v.number(),
+    endTick: v.number(),
+    isActive: v.boolean(),
+    affectedTerritoryIds: v.array(v.id("territories")),
+    severity: v.string(),            // "minor", "major", "catastrophic"
+  })
+    .index("by_active", ["isActive"])
+    .index("by_event", ["eventId"]),
+
+  // Rise and Fall - tracks prosperity cycles per territory
+  riseAndFall: defineTable({
+    territoryId: v.id("territories"),
+    status: v.string(),              // "stable", "golden_age", "crisis", etc.
+    decadenceLevel: v.number(),      // 0-100
+    corruptionLevel: v.number(),     // 0-100
+    goldenAgeTicks: v.number(),      // Ticks remaining in golden age
+    collapseRisk: v.number(),        // 0-100 probability
+    underdogBonus: v.number(),       // 0-50 bonus for small civs
+    reforms: v.array(v.string()),    // Active reforms implemented
+    lastStatusChange: v.number(),    // Tick of last status change
+    activeCrisis: v.optional(v.string()), // Current crisis type if any
+  })
+    .index("by_territory", ["territoryId"])
+    .index("by_status", ["status"]),
+
+  // =============================================
+  // ENDGAME TENSIONS - NUCLEAR DYNAMICS
+  // =============================================
+
+  // Nuclear arsenal tracking
+  nuclearArsenals: defineTable({
+    territoryId: v.id("territories"),
+    warheads: v.number(),            // Number of nuclear weapons
+    deliverySystems: v.number(),     // Missiles/bombers capable of delivery
+    productionRate: v.number(),      // Warheads per tick when producing
+    isProducing: v.boolean(),        // Currently building nukes
+    firstNukeTick: v.optional(v.number()), // When they got their first nuke
+    nukesUsed: v.number(),           // Total nukes launched
+    targetedBy: v.array(v.id("territories")), // Who is targeting them
+  })
+    .index("by_territory", ["territoryId"]),
+
+  // Arms race tracking between specific territories
+  armsRaces: defineTable({
+    territory1Id: v.id("territories"),
+    territory2Id: v.id("territories"),
+    startTick: v.number(),
+    intensity: v.number(),           // 0-100, how heated
+    nuclearTension: v.number(),      // 0-100, risk of nuclear war
+    closeCalls: v.array(v.object({   // Near-miss incidents
+      tick: v.number(),
+      description: v.string(),
+      tensionAdded: v.number(),
+    })),
+    isActive: v.boolean(),
+  })
+    .index("by_territory1", ["territory1Id"])
+    .index("by_territory2", ["territory2Id"])
+    .index("by_active", ["isActive"]),
+
+  // Doomsday clock - global nuclear tension
+  doomsdayClock: defineTable({
+    minutesToMidnight: v.number(),   // 0-12, lower = more danger
+    lastMovement: v.number(),        // Tick of last change
+    movementReason: v.string(),      // Why it moved
+    allTimeLowest: v.number(),       // Closest to midnight ever
+    allTimeLowestTick: v.optional(v.number()),
+  }),
+
+  // =============================================
+  // HUMAN LIFE SYSTEMS - MARRIAGE & DYNASTIES
+  // =============================================
+
+  // Marriage records
+  marriages: defineTable({
+    territoryId: v.id("territories"),
+    spouse1Id: v.id("characters"),
+    spouse2Id: v.id("characters"),
+    marriageType: v.union(
+      v.literal("political"),
+      v.literal("love"),
+      v.literal("arranged"),
+      v.literal("forced")
+    ),
+    marriageTick: v.number(),
+    status: v.union(
+      v.literal("active"),
+      v.literal("widowed"),
+      v.literal("divorced"),
+      v.literal("annulled")
+    ),
+    allianceTerritoryId: v.optional(v.id("territories")), // For political marriages
+    dowryPaid: v.optional(v.number()),
+    childrenIds: v.array(v.id("characters")),
+    maritalHappiness: v.number(), // 0-100, affects character happiness
+  })
+    .index("by_territory", ["territoryId"])
+    .index("by_spouse1", ["spouse1Id"])
+    .index("by_spouse2", ["spouse2Id"])
+    .index("by_status", ["status"]),
+
+  // Dynasty family trees
+  dynastyTrees: defineTable({
+    territoryId: v.id("territories"),
+    dynastyName: v.string(),
+    founderId: v.id("characters"),
+    foundedTick: v.number(),
+    currentHeadId: v.optional(v.id("characters")),
+    totalGenerations: v.number(),
+    inheritanceRule: v.union(
+      v.literal("primogeniture"),  // Eldest child inherits
+      v.literal("agnatic"),        // Eldest male inherits
+      v.literal("elective"),       // Council chooses heir
+      v.literal("seniority")       // Oldest member inherits
+    ),
+    prestige: v.number(), // 0-1000, dynasty's accumulated glory
+    motto: v.optional(v.string()),
+    coatOfArms: v.optional(v.string()),
+  })
+    .index("by_territory", ["territoryId"])
+    .index("by_founder", ["founderId"]),
+
+  // =============================================
+  // HUMAN LIFE SYSTEMS - ROMANCE
+  // =============================================
+
+  // Romantic relationships
+  romances: defineTable({
+    territoryId: v.id("territories"),
+    lover1Id: v.id("characters"),
+    lover2Id: v.id("characters"),
+    romanceType: v.union(
+      v.literal("courtship"),    // Formal wooing
+      v.literal("romance"),      // Love affair
+      v.literal("affair"),       // Secret relationship
+      v.literal("unrequited")    // One-sided love
+    ),
+    isSecret: v.boolean(),
+    attraction: v.number(),      // 0-100, physical attraction
+    passion: v.number(),         // 0-100, intensity of feelings
+    intimacy: v.number(),        // 0-100, emotional closeness
+    startTick: v.number(),
+    isAdulterous: v.boolean(),   // One or both are married to others
+    status: v.union(
+      v.literal("active"),
+      v.literal("ended_mutual"),
+      v.literal("ended_breakup"),
+      v.literal("ended_marriage") // Romance led to marriage
+    ),
+    endTick: v.optional(v.number()),
+    endReason: v.optional(v.string()),
+  })
+    .index("by_territory", ["territoryId"])
+    .index("by_lover1", ["lover1Id"])
+    .index("by_lover2", ["lover2Id"])
+    .index("by_status", ["status"]),
+
+  // =============================================
+  // HUMAN LIFE SYSTEMS - WEATHER & SEASONS
+  // =============================================
+
+  // Weather per territory
+  weather: defineTable({
+    territoryId: v.id("territories"),
+    currentWeather: v.union(
+      v.literal("clear"),
+      v.literal("cloudy"),
+      v.literal("rain"),
+      v.literal("heavy_rain"),
+      v.literal("thunderstorm"),
+      v.literal("snow"),
+      v.literal("blizzard"),
+      v.literal("drought"),
+      v.literal("heat_wave"),
+      v.literal("fog"),
+      v.literal("monsoon")
+    ),
+    temperature: v.number(),     // In abstract units, 0=freezing, 50=mild, 100=scorching
+    weatherStartTick: v.number(),
+    expectedEndTick: v.number(),
+    isExtreme: v.boolean(),      // Is this dangerous weather?
+    // Modifiers (percentage, e.g., -20 = 20% worse, +10 = 10% better)
+    farmingModifier: v.number(),
+    militaryModifier: v.number(),
+    travelModifier: v.number(),
+    moodModifier: v.number(),
+  }).index("by_territory", ["territoryId"]),
+
+  // =============================================
+  // HUMAN LIFE SYSTEMS - INFRASTRUCTURE
+  // =============================================
+
+  // Infrastructure projects
+  infrastructure: defineTable({
+    territoryId: v.id("territories"),
+    type: v.union(
+      v.literal("road"),
+      v.literal("bridge"),
+      v.literal("aqueduct"),
+      v.literal("wall"),
+      v.literal("harbor"),
+      v.literal("lighthouse"),
+      v.literal("sewers")
+    ),
+    name: v.optional(v.string()),
+    level: v.number(),           // 1-5
+    connectsTo: v.optional(v.id("territories")), // For roads/bridges
+    condition: v.number(),       // 0-100, degrades over time
+    constructedAtTick: v.number(),
+    maintenanceCost: v.number(), // Wealth per tick
+    isUnderConstruction: v.boolean(),
+    constructionProgress: v.number(), // 0-100
+    constructionStartTick: v.optional(v.number()),
+    // Effects
+    tradeBonus: v.optional(v.number()),
+    defenseBonus: v.optional(v.number()),
+    healthBonus: v.optional(v.number()),
+    happinessBonus: v.optional(v.number()),
+  })
+    .index("by_territory", ["territoryId"])
+    .index("by_type", ["type"]),
+
+  // =============================================
+  // HUMAN LIFE SYSTEMS - NATURAL DISASTERS
+  // =============================================
+
+  // Active disasters
+  disasters: defineTable({
+    territoryId: v.id("territories"),
+    type: v.union(
+      v.literal("earthquake"),
+      v.literal("flood"),
+      v.literal("volcanic_eruption"),
+      v.literal("tsunami"),
+      v.literal("wildfire"),
+      v.literal("landslide")
+    ),
+    severity: v.union(
+      v.literal("minor"),
+      v.literal("moderate"),
+      v.literal("major"),
+      v.literal("catastrophic")
+    ),
+    startTick: v.number(),
+    endTick: v.number(),
+    populationCasualties: v.number(),
+    buildingsDestroyed: v.number(),
+    infrastructureDamaged: v.array(v.id("infrastructure")),
+    recoveryProgress: v.number(), // 0-100
+    status: v.union(
+      v.literal("active"),
+      v.literal("recovering"),
+      v.literal("recovered")
+    ),
+    traumaticMemoryCreated: v.boolean(), // Has this created trauma for characters?
+  })
+    .index("by_territory", ["territoryId"])
+    .index("by_type", ["type"])
+    .index("by_status", ["status"]),
+
+  // =============================================
+  // HUMAN LIFE SYSTEMS - EXPLORATION
+  // =============================================
+
+  // Expeditions to explore unknown lands
+  expeditions: defineTable({
+    originTerritoryId: v.id("territories"),
+    targetDirection: v.optional(v.union(
+      v.literal("north"),
+      v.literal("south"),
+      v.literal("east"),
+      v.literal("west"),
+      v.literal("overseas")
+    )),
+    leaderId: v.optional(v.id("characters")),
+    explorerCount: v.number(),
+    soldierCount: v.number(),
+    supplies: v.number(),        // Days of food/water
+    departureTick: v.number(),
+    expectedReturnTick: v.number(),
+    status: v.union(
+      v.literal("preparing"),
+      v.literal("traveling"),
+      v.literal("exploring"),
+      v.literal("returning"),
+      v.literal("completed"),
+      v.literal("lost")          // Expedition lost, never returned
+    ),
+    discoveries: v.array(v.object({
+      type: v.string(),          // "resource", "landmark", "tribe", "ruins"
+      description: v.string(),
+      value: v.number(),         // How valuable the discovery is
+      tick: v.number(),
+    })),
+    casualtyCount: v.number(),
+    journalEntries: v.optional(v.array(v.object({
+      tick: v.number(),
+      entry: v.string(),
+    }))),
+  })
+    .index("by_origin", ["originTerritoryId"])
+    .index("by_leader", ["leaderId"])
+    .index("by_status", ["status"]),
+
+  // =============================================
+  // HUMAN LIFE SYSTEMS - FRIENDSHIPS
+  // =============================================
+
+  // Non-romantic bonds between characters
+  friendships: defineTable({
+    territoryId: v.id("territories"),
+    character1Id: v.id("characters"),
+    character2Id: v.id("characters"),
+    friendshipType: v.union(
+      v.literal("acquaintance"),
+      v.literal("friend"),
+      v.literal("close_friend"),
+      v.literal("best_friend"),
+      v.literal("sworn_brother")  // Unbreakable loyalty
+    ),
+    strength: v.number(),        // 0-100
+    sharedExperiences: v.array(v.string()), // "fought_together", "survived_famine", etc.
+    startTick: v.number(),
+    lastInteractionTick: v.number(),
+    // Effects
+    loyaltyBonus: v.number(),    // How much this friendship affects loyalty
+    mentalHealthBonus: v.number(), // Friends help mental health recovery
+  })
+    .index("by_territory", ["territoryId"])
+    .index("by_character1", ["character1Id"])
+    .index("by_character2", ["character2Id"]),
+
+  // =============================================
+  // HUMAN LIFE SYSTEMS - ESPIONAGE
+  // =============================================
+
+  // Spy agents
+  spies: defineTable({
+    ownerTerritoryId: v.id("territories"),
+    targetTerritoryId: v.id("territories"),
+    characterId: v.optional(v.id("characters")), // If spy is a named character
+    codename: v.string(),
+    skill: v.number(),           // 0-100, espionage ability
+    cover: v.union(
+      v.literal("merchant"),
+      v.literal("diplomat"),
+      v.literal("servant"),
+      v.literal("scholar"),
+      v.literal("traveler")
+    ),
+    mission: v.union(
+      v.literal("gather_intel"),
+      v.literal("sabotage"),
+      v.literal("assassinate"),
+      v.literal("steal_tech"),
+      v.literal("incite_rebellion")
+    ),
+    infiltrationLevel: v.number(), // 0-100, how deep they've penetrated
+    discoveryRisk: v.number(),   // 0-100, chance of being caught
+    status: v.union(
+      v.literal("active"),
+      v.literal("extracted"),
+      v.literal("captured"),
+      v.literal("executed"),
+      v.literal("turned")        // Became double agent
+    ),
+    intelligence: v.array(v.object({
+      type: v.string(),          // "military", "economic", "political"
+      info: v.string(),
+      tick: v.number(),
+      accuracy: v.number(),      // 0-100, how accurate the intel is
+    })),
+    deployedTick: v.number(),
+    lastReportTick: v.optional(v.number()),
+  })
+    .index("by_owner", ["ownerTerritoryId"])
+    .index("by_target", ["targetTerritoryId"])
+    .index("by_status", ["status"]),
+
+  // =============================================
+  // HUMAN LIFE SYSTEMS - ADDICTIONS
+  // =============================================
+
+  // Character addictions
+  addictions: defineTable({
+    characterId: v.id("characters"),
+    territoryId: v.id("territories"),
+    type: v.union(
+      v.literal("alcohol"),
+      v.literal("gambling"),
+      v.literal("opium"),
+      v.literal("other")
+    ),
+    severity: v.union(
+      v.literal("mild"),
+      v.literal("moderate"),
+      v.literal("severe"),
+      v.literal("crippling")
+    ),
+    startTick: v.number(),
+    lastIndulgeTick: v.number(),
+    withdrawalLevel: v.number(), // 0-100, increases when not indulging
+    functionalityImpact: v.number(), // 0-100, how much it affects their duties
+    wealthDrain: v.number(),     // Wealth consumed per tick
+    isSecret: v.boolean(),
+    recoveryAttempts: v.number(),
+    inRecovery: v.boolean(),
+    recoveryProgress: v.optional(v.number()), // 0-100
+  })
+    .index("by_character", ["characterId"])
+    .index("by_territory", ["territoryId"])
+    .index("by_type", ["type"]),
+
+  // =============================================
+  // ECONOMY SYSTEM
+  // =============================================
+
+  // Territory treasury - actual money and reserves
+  treasury: defineTable({
+    territoryId: v.id("territories"),
+    // Metal reserves (raw materials for coins)
+    goldReserves: v.number(),      // Actual gold bars/ingots
+    silverReserves: v.number(),    // Actual silver
+    copperReserves: v.number(),    // Copper for small coins
+    // Minted currency in circulation
+    goldCoins: v.number(),         // High value
+    silverCoins: v.number(),       // Medium value
+    copperCoins: v.number(),       // Low value (daily transactions)
+    // Paper money (unlocked later)
+    bankNotes: v.optional(v.number()),
+    // Debt
+    totalDebt: v.number(),         // Money owed
+    debtInterestRate: v.number(),  // Annual interest %
+    // Economic health
+    creditRating: v.number(),      // 0-100, affects loan terms
+    inflationRate: v.number(),     // Current inflation %
+    // Currency integrity
+    debasementLevel: v.number(),   // 0-100, how debased the currency is
+    // Economic phase
+    economicPhase: v.union(
+      v.literal("barter"),
+      v.literal("commodity"),
+      v.literal("coined"),
+      v.literal("banking"),
+      v.literal("paper"),
+      v.literal("modern")
+    ),
+    // Monthly tracking
+    lastMonthIncome: v.number(),
+    lastMonthExpenses: v.number(),
+    lastMonthBalance: v.number(),
+  })
+    .index("by_territory", ["territoryId"]),
+
+  // Tax policy for each territory
+  taxPolicy: defineTable({
+    territoryId: v.id("territories"),
+    // Tax rates (0-100)
+    landTaxRate: v.number(),       // Tax on landowners
+    tradeTaxRate: v.number(),      // Tax on merchants/trade
+    pollTaxRate: v.number(),       // Per-person tax
+    incomeTaxRate: v.number(),     // Tax on earnings (advanced)
+    luxuryTaxRate: v.number(),     // Tax on luxuries
+    // Collection
+    collectionEfficiency: v.number(), // 0-100, how much actually collected
+    taxEvaders: v.number(),        // Estimated evaders
+    // Effects
+    happinessImpact: v.number(),   // How much taxes hurt happiness
+    // Special
+    taxExemptions: v.array(v.string()), // Who is exempt (nobles, clergy, etc.)
+    lastCollectionTick: v.number(),
+    lastCollectionAmount: v.number(),
+  })
+    .index("by_territory", ["territoryId"]),
+
+  // Loans - money borrowed or lent
+  loans: defineTable({
+    borrowerTerritoryId: v.id("territories"),
+    lenderType: v.union(
+      v.literal("merchant_guild"),
+      v.literal("temple"),
+      v.literal("foreign_territory"),
+      v.literal("noble_family"),
+      v.literal("bank")
+    ),
+    lenderTerritoryId: v.optional(v.id("territories")), // If foreign loan
+    lenderName: v.string(),        // Name of lending institution
+    principalAmount: v.number(),   // Original loan amount
+    remainingAmount: v.number(),   // Amount still owed
+    interestRate: v.number(),      // Annual interest %
+    monthlyPayment: v.number(),    // Required monthly payment
+    startTick: v.number(),
+    dueByTick: v.number(),         // When loan must be repaid
+    status: v.union(
+      v.literal("active"),
+      v.literal("paid"),
+      v.literal("defaulted"),
+      v.literal("renegotiated")
+    ),
+    missedPayments: v.number(),    // Number of missed payments
+    collateral: v.optional(v.string()), // What's pledged as security
+  })
+    .index("by_borrower", ["borrowerTerritoryId"])
+    .index("by_status", ["status"]),
+
+  // Currency definitions (for different civilizations)
+  currencies: defineTable({
+    territoryId: v.id("territories"),
+    name: v.string(),              // "Denarius", "Drachma", etc.
+    symbol: v.optional(v.string()), // "₳", "Ð", etc.
+    // Coin types
+    goldCoinName: v.string(),      // "Aureus"
+    silverCoinName: v.string(),    // "Denarius"
+    copperCoinName: v.string(),    // "As"
+    // Metal content (purity)
+    goldPurity: v.number(),        // 0-100, higher = more valuable
+    silverPurity: v.number(),
+    copperPurity: v.number(),
+    // Exchange rates (relative to base)
+    goldToSilverRatio: v.number(), // How many silver = 1 gold
+    silverToCopperRatio: v.number(),
+    // Trust
+    foreignAcceptance: v.number(), // 0-100, how trusted abroad
+    counterfeiting: v.number(),    // 0-100, counterfeit prevalence
+    // History
+    foundedTick: v.number(),
+    lastReformTick: v.optional(v.number()),
+  })
+    .index("by_territory", ["territoryId"]),
+
+  // Economic history for tracking trends
+  economicHistory: defineTable({
+    territoryId: v.id("territories"),
+    tick: v.number(),
+    // Snapshot
+    totalWealth: v.number(),
+    inflation: v.number(),
+    unemployment: v.number(),
+    tradeBalance: v.number(),      // Exports - Imports
+    taxRevenue: v.number(),
+    militarySpending: v.number(),
+    debtLevel: v.number(),
+    // Prices (for inflation tracking)
+    foodPrice: v.number(),
+    goodsPrice: v.number(),
+    laborPrice: v.number(),
+  })
+    .index("by_territory", ["territoryId"])
+    .index("by_tick", ["tick"]),
+
+  // Banks (when banking is unlocked)
+  banks: defineTable({
+    territoryId: v.id("territories"),
+    name: v.string(),
+    type: v.union(
+      v.literal("merchant_bank"),
+      v.literal("temple_bank"),
+      v.literal("state_bank"),
+      v.literal("private_bank")
+    ),
+    foundedTick: v.number(),
+    // Assets
+    deposits: v.number(),          // Money deposited by citizens
+    reserves: v.number(),          // Actual money held
+    loansOutstanding: v.number(),  // Money lent out
+    // Rates
+    depositInterestRate: v.number(),
+    loanInterestRate: v.number(),
+    reserveRatio: v.number(),      // % of deposits kept as reserves
+    // Health
+    stability: v.number(),         // 0-100
+    publicTrust: v.number(),       // 0-100
+    // Status
+    status: v.union(
+      v.literal("active"),
+      v.literal("struggling"),
+      v.literal("bankrupt"),
+      v.literal("seized")
+    ),
+  })
+    .index("by_territory", ["territoryId"]),
+
+  // Trade agreements (more detailed than tradeRoutes)
+  tradeAgreements: defineTable({
+    territory1Id: v.id("territories"),
+    territory2Id: v.id("territories"),
+    agreementType: v.union(
+      v.literal("free_trade"),
+      v.literal("preferential"),
+      v.literal("tariff_reduction"),
+      v.literal("monopoly_grant"),
+      v.literal("embargo")
+    ),
+    // Terms
+    tariffRate: v.number(),        // Import tax %
+    quotas: v.optional(v.object({
+      goods: v.number(),
+      food: v.number(),
+      luxuries: v.number(),
+    })),
+    // Duration
+    startTick: v.number(),
+    expiryTick: v.optional(v.number()),
+    status: v.union(
+      v.literal("active"),
+      v.literal("expired"),
+      v.literal("violated"),
+      v.literal("cancelled")
+    ),
+    // Value
+    totalTradeValue: v.number(),   // Cumulative trade under agreement
+  })
+    .index("by_territory1", ["territory1Id"])
+    .index("by_territory2", ["territory2Id"]),
+
+  // Wages and labor market
+  laborMarket: defineTable({
+    territoryId: v.id("territories"),
+    // Wage levels
+    unskilledWage: v.number(),     // Daily wage for unskilled labor
+    skilledWage: v.number(),       // Daily wage for craftsmen
+    professionalWage: v.number(),  // Wage for professionals
+    soldierPay: v.number(),        // Military pay
+    // Employment
+    unemploymentRate: v.number(),  // 0-100
+    laborShortage: v.boolean(),    // True if not enough workers
+    // Conditions
+    averageWorkHours: v.number(),  // Hours per day
+    workConditions: v.union(
+      v.literal("harsh"),
+      v.literal("poor"),
+      v.literal("fair"),
+      v.literal("good"),
+      v.literal("excellent")
+    ),
+    // Guilds influence
+    guildWageControl: v.number(),  // 0-100, how much guilds control wages
+    lastUpdatedTick: v.number(),
+  })
+    .index("by_territory", ["territoryId"]),
+
+  // Price controls (when implemented)
+  priceControls: defineTable({
+    territoryId: v.id("territories"),
+    goodType: v.string(),          // "bread", "grain", "iron", etc.
+    controlType: v.union(
+      v.literal("maximum"),        // Price ceiling
+      v.literal("minimum"),        // Price floor
+      v.literal("fixed")           // Exact price
+    ),
+    controlledPrice: v.number(),
+    marketPrice: v.number(),       // What price would be without control
+    effectivenesss: v.number(),    // 0-100, how well enforced
+    blackMarketSize: v.number(),   // 0-100, illegal trade volume
+    startTick: v.number(),
+    status: v.union(
+      v.literal("active"),
+      v.literal("suspended"),
+      v.literal("abolished")
+    ),
   })
     .index("by_territory", ["territoryId"]),
 });

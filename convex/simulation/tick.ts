@@ -8,7 +8,7 @@ import {
   generateRandomEvent,
   applyAllianceBenefits,
 } from "./resources";
-import { processResourceProduction, processMarketPrices } from "./economy";
+import { processResourceProduction, processMarketPrices, initializeTreasury, processEconomy } from "./economy";
 import { processBuildingMaintenance } from "./buildings";
 import { processCaravans } from "./trade";
 import { processDemographics, processImmigration } from "./demographics";
@@ -25,10 +25,14 @@ import { updateActiveWars, recordBattle } from "./warChronicles";
 import { updateLeaderboards } from "./leaderboards";
 import { updateStreaks, recordPopulationPeak } from "./streaks";
 import { calculateTensions } from "./tensions";
+import { processWarEmergence } from "./warEmergence";
+import { processExpansion, processExpeditionReturns } from "./expansion";
 import { processRivalries } from "./rivalries";
 import { generateYearlyChronicle } from "./recaps";
 import { updateProsperityTier, applyProsperityEffects, initializeProsperityTier } from "./prosperity";
 import { processSurvival, getSeason, processInstinctiveSurvival } from "./survival";
+import { processAllSurvivalNeeds } from "./survivalNeeds";
+import { processDiscovery, detectCurrentCrisis } from "./survivalDiscovery";
 // Competition system imports
 import { checkVictoryConditions, checkElimination, startMatch, endMatch, recordKeyMoment } from "./victory";
 import { recordPowerScores, getPowerRankings } from "./scoring";
@@ -42,12 +46,35 @@ import { processRulerLegitimacy } from "./rulerLegitimacy";
 // Society Systems - Professions, Education, Religion, Guilds, Judicial
 import { processProfessions, autoAssignProfessions } from "./professions";
 import { processEducation } from "./education";
-import { processReligion } from "./religion";
+import { processReligion, processOrganicReligionEmergence } from "./religion";
 import { processGuilds } from "./guilds";
 import { processImprisoned } from "./judicial";
 // Organic Knowledge Progression System
 import { aggregatePopulationSkills, checkTechRequirements, calculateSkillBonus, getKnowledgeSummary } from "./collectiveKnowledge";
+// Knowledge Transfer System (Education)
+import { processKnowledgeTransfer } from "./knowledgeTransfer";
 import { TECH_TREE, TechSkillRequirement } from "../data/techTree";
+// Viewer Engagement Systems
+import { checkAndAwardMilestones, getMilestonePoints } from "./milestones";
+import { processWorldEvents } from "./worldEvents";
+import { processRiseAndFall, getRiseAndFallStatus } from "./riseAndFall";
+// Endgame Tensions
+import { processEndgameTensions } from "./endgameTensions";
+// Human Life Systems - New imports
+import { processWeather, initializeWeather, getWeather } from "./weatherSystem";
+import { processInfrastructure, getInfrastructureBonuses } from "./infrastructureSystem";
+import { checkForRandomDisaster, processActiveDisasters } from "./disastersSystem";
+import { processFriendships } from "./friendship";
+import { processRomances } from "./romance";
+import { processMarriages } from "./marriage";
+import { processDynasties } from "./dynasties";
+import { processMentalHealth } from "./mentalHealth";
+import { processAddictions } from "./addiction";
+import { processEspionage } from "./espionage";
+// Sabotage is now AI-driven - see sabotageMotive.ts for context building
+import { processExpeditions } from "./exploration";
+import { processGenderDynamics, initializeGenderRoles } from "./gender";
+import { processWarDemographics, initializeFightingPopulation } from "./warDemographics";
 
 // System interconnection effects
 const SYSTEM_TRIGGERS = {
@@ -256,6 +283,19 @@ export const processTick = internalMutation({
           severity: event.type === "exposure_deaths" ? "critical" : "negative",
           createdAt: Date.now(),
         });
+      }
+
+      // Process comprehensive survival needs (water, clothing, sanitation, preservation, medicine)
+      const survivalNeeds = await processAllSurvivalNeeds(ctx, territory._id, newTick, newSeason);
+      if (survivalNeeds.criticalNeeds.length > 0) {
+        console.log(`[SURVIVAL] ${territory.name} critical needs: ${survivalNeeds.criticalNeeds.join(", ")}`);
+      }
+
+      // Process organic technology discovery - crises drive innovation!
+      const currentCrisis = detectCurrentCrisis(territory);
+      const discoveryResult = await processDiscovery(ctx, territory._id, newTick, currentCrisis);
+      if (discoveryResult.discovered) {
+        console.log(`[DISCOVERY] ${territory.name} discovered ${discoveryResult.discovered.name}!`);
       }
 
       // Check for disease risk
@@ -731,6 +771,36 @@ export const processTick = internalMutation({
         }
       }
 
+      // Process knowledge transfer (libraries, schools, apprenticeships, community learning)
+      // This allows new generations to learn skills without going through crises!
+      const knowledgeResult = await processKnowledgeTransfer(ctx, territory._id, newTick);
+      for (const event of knowledgeResult.events) {
+        await ctx.db.insert("events", {
+          tick: newTick,
+          type: event.type === "graduation" || event.type === "apprentice_promotion" ? "breakthrough" : "decision",
+          territoryId: territory._id,
+          title: event.type === "graduation" ? "Graduation!" :
+                 event.type === "apprentice_promotion" ? "Apprentice Promoted!" : "Education",
+          description: event.description,
+          severity: "positive",
+          createdAt: Date.now(),
+        });
+      }
+
+      // Check for organic religion emergence (religion emerges naturally from experiences)
+      const religionEmergence = await processOrganicReligionEmergence(ctx, territory._id, newTick);
+      if (religionEmergence.emerged && religionEmergence.message) {
+        await ctx.db.insert("events", {
+          tick: newTick,
+          type: "breakthrough",
+          territoryId: territory._id,
+          title: "A New Faith Emerges!",
+          description: religionEmergence.message,
+          severity: "positive",
+          createdAt: Date.now(),
+        });
+      }
+
       // Process religion (conversions, tithes, religious events)
       const religionEvents = await processReligion(ctx, territory._id, newTick);
       for (const event of religionEvents) {
@@ -913,8 +983,326 @@ export const processTick = internalMutation({
         }
       }
 
+      // =============================================
+      // PHASE 6d: HUMAN LIFE SYSTEMS
+      // =============================================
+
+      // Initialize gender roles if not present
+      if (!territory.genderRoles) {
+        await initializeGenderRoles(ctx, territory._id);
+      }
+
+      // Initialize fighting population if not present
+      if (!territory.fightingPopulation) {
+        await initializeFightingPopulation(ctx, territory._id);
+      }
+
+      // Initialize treasury if not present
+      const existingTreasury = await ctx.db
+        .query("treasury")
+        .withIndex("by_territory", (q: any) => q.eq("territoryId", territory._id))
+        .first();
+      if (!existingTreasury) {
+        await initializeTreasury(ctx, territory._id);
+      }
+
+      // Initialize weather if not present
+      const existingWeather = await ctx.db
+        .query("weather")
+        .withIndex("by_territory", (q) => q.eq("territoryId", territory._id))
+        .first();
+      if (!existingWeather) {
+        await initializeWeather(ctx, territory._id, newSeason, newTick);
+      }
+
+      // Process weather (changes, effects)
+      const weatherResult = await processWeather(ctx, territory._id, newTick, newSeason);
+      for (const event of weatherResult.events) {
+        await ctx.db.insert("events", {
+          tick: newTick,
+          type: event.type === "extreme_weather" ? "disaster" : "decision",
+          territoryId: territory._id,
+          title: event.type === "extreme_weather" ? "Extreme Weather!" : "Weather Change",
+          description: event.description,
+          severity: event.type === "extreme_weather" ? "negative" : "info",
+          createdAt: Date.now(),
+        });
+      }
+
+      // Get current weather for disaster checks
+      const currentWeather = await getWeather(ctx, territory._id);
+
+      // INTERCONNECTION: Apply weather effects to food production and happiness
+      if (currentWeather) {
+        const currentTerr = await ctx.db.get(territory._id);
+        if (currentTerr) {
+          // Weather affects food production (farming modifier as percentage)
+          const farmingEffect = currentWeather.farmingModifier / 100;
+          const baseFoodChange = 2; // Base food production per tick
+          const weatherFoodChange = Math.floor(baseFoodChange * (1 + farmingEffect));
+
+          // Weather affects mood/happiness
+          const moodEffect = currentWeather.moodModifier / 10; // Scaled down
+
+          // Apply weather effects
+          const newFood = Math.max(0, Math.min(200, currentTerr.food + weatherFoodChange));
+          const newHappiness = Math.max(0, Math.min(100, currentTerr.happiness + moodEffect));
+
+          await ctx.db.patch(territory._id, {
+            food: newFood,
+            happiness: newHappiness,
+          });
+
+          // Extreme weather events trigger additional effects
+          if (currentWeather.isExtreme) {
+            // Extreme weather causes stress/trauma to population
+            if (currentWeather.currentWeather === "drought" && currentTerr.food < 50) {
+              // Famine conditions - happiness drops faster
+              await ctx.db.patch(territory._id, {
+                happiness: Math.max(0, newHappiness - 5),
+              });
+            }
+          }
+        }
+      }
+
+      // Process infrastructure (construction, maintenance, decay)
+      const infraResult = await processInfrastructure(ctx, territory._id, newTick);
+      for (const event of infraResult.events) {
+        await ctx.db.insert("events", {
+          tick: newTick,
+          type: event.type === "construction_complete" ? "breakthrough" : "decision",
+          territoryId: territory._id,
+          title: event.type === "construction_complete" ? "Construction Complete!" :
+                 event.type === "infrastructure_collapsed" ? "Infrastructure Collapsed!" : "Infrastructure",
+          description: event.description,
+          severity: event.type === "infrastructure_collapsed" ? "negative" : "positive",
+          createdAt: Date.now(),
+        });
+      }
+
+      // Process economy (taxes, loans, inflation, wages)
+      const economyResult = await processEconomy(ctx, territory._id, newTick);
+      for (const event of economyResult.events) {
+        await ctx.db.insert("events", {
+          tick: newTick,
+          type: event.type === "bankruptcy" || event.type === "loan_default" ? "crisis" :
+                event.type === "economic_boom" || event.type === "phase_upgrade" ? "breakthrough" : "decision",
+          territoryId: territory._id,
+          title: event.type === "bankruptcy" ? "Economic Collapse!" :
+                 event.type === "loan_default" ? "Loan Default!" :
+                 event.type === "economic_boom" ? "Economic Boom!" :
+                 event.type === "phase_upgrade" ? "Economic Advancement!" :
+                 event.type === "hyperinflation" ? "Hyperinflation Crisis!" : "Treasury Update",
+          description: event.description,
+          severity: event.type === "bankruptcy" || event.type === "hyperinflation" ? "critical" :
+                   event.type === "loan_default" ? "negative" :
+                   event.type === "economic_boom" || event.type === "phase_upgrade" ? "positive" : "info",
+          createdAt: Date.now(),
+        });
+      }
+
+      // Check for natural disasters
+      const disasterResult = await checkForRandomDisaster(
+        ctx,
+        territory._id,
+        newTick,
+        currentWeather?.currentWeather,
+        newSeason
+      );
+      if (disasterResult.occurred && disasterResult.message) {
+        await ctx.db.insert("events", {
+          tick: newTick,
+          type: "disaster",
+          territoryId: territory._id,
+          title: "Natural Disaster!",
+          description: disasterResult.message,
+          severity: "critical",
+          createdAt: Date.now(),
+        });
+      }
+
+      // Process active disasters (recovery progress)
+      const activeDisasterResult = await processActiveDisasters(ctx, territory._id, newTick);
+      for (const event of activeDisasterResult.events) {
+        await ctx.db.insert("events", {
+          tick: newTick,
+          type: event.type === "recovery_complete" ? "breakthrough" : "decision",
+          territoryId: territory._id,
+          title: event.type === "recovery_complete" ? "Disaster Recovery Complete" : "Disaster Update",
+          description: event.description,
+          severity: event.type === "recovery_complete" ? "positive" : "info",
+          createdAt: Date.now(),
+        });
+      }
+
+      // Process gender dynamics (workforce changes)
+      const genderResult = await processGenderDynamics(ctx, territory._id, newTick);
+      for (const event of genderResult.events) {
+        await ctx.db.insert("events", {
+          tick: newTick,
+          type: "decision",
+          territoryId: territory._id,
+          title: "Social Change",
+          description: event.description,
+          severity: "info",
+          createdAt: Date.now(),
+        });
+      }
+
+      // Process war demographics (fighting population)
+      const warDemoResult = await processWarDemographics(ctx, territory._id, newTick);
+      for (const event of warDemoResult.events) {
+        await ctx.db.insert("events", {
+          tick: newTick,
+          type: event.type.includes("critical") ? "crisis" : "decision",
+          territoryId: territory._id,
+          title: event.type === "war_widows_crisis" ? "War Widow Crisis" :
+                 event.type === "war_orphan_crisis" ? "Orphan Crisis" : "Military Update",
+          description: event.description,
+          severity: event.type.includes("crisis") ? "negative" : "info",
+          createdAt: Date.now(),
+        });
+      }
+
+      // Process friendships (bond growth/decay)
+      const friendshipResult = await processFriendships(ctx, territory._id, newTick);
+      for (const event of friendshipResult.events) {
+        await ctx.db.insert("events", {
+          tick: newTick,
+          type: event.type === "friendship_ended" ? "crisis" : "breakthrough",
+          territoryId: territory._id,
+          title: event.type === "sworn_brothers" ? "Sworn Brotherhood!" :
+                 event.type === "friendship_ended" ? "Friendship Ended" : "Friendship",
+          description: event.description,
+          severity: event.type === "friendship_ended" ? "negative" : "positive",
+          createdAt: Date.now(),
+        });
+      }
+
+      // Process romances (attraction, courtship, affairs)
+      const romanceResult = await processRomances(ctx, territory._id, newTick);
+      for (const event of romanceResult.events) {
+        await ctx.db.insert("events", {
+          tick: newTick,
+          type: event.type.includes("scandal") ? "crisis" : "decision",
+          territoryId: territory._id,
+          title: event.type === "affair_discovered" ? "Scandal!" :
+                 event.type === "courtship_success" ? "Love Blooms" : "Romance",
+          description: event.description,
+          severity: event.type.includes("scandal") || event.type.includes("discovered")
+            ? "negative" : "info",
+          createdAt: Date.now(),
+        });
+      }
+
+      // Process marriages (alliances, divorces)
+      const marriageResult = await processMarriages(ctx, territory._id, newTick);
+      for (const event of marriageResult.events) {
+        await ctx.db.insert("events", {
+          tick: newTick,
+          type: event.type === "marriage_dissolved" ? "crisis" : "breakthrough",
+          territoryId: territory._id,
+          title: event.type === "marriage_dissolved" ? "Marriage Ended" :
+                 event.type === "child_born" ? "Birth!" : "Marriage",
+          description: event.description,
+          severity: event.type === "marriage_dissolved" ? "negative" : "positive",
+          createdAt: Date.now(),
+        });
+      }
+
+      // Process dynasties (succession, prestige)
+      const dynastyResult = await processDynasties(ctx, territory._id, newTick);
+      for (const event of dynastyResult.events) {
+        await ctx.db.insert("events", {
+          tick: newTick,
+          type: event.type === "succession" ? "crisis" : "decision",
+          territoryId: territory._id,
+          title: event.type === "succession" ? "Succession!" :
+                 event.type === "succession_tension" ? "Succession Crisis Brewing" : "Dynasty",
+          description: event.description,
+          severity: event.type === "succession" ? "critical" : "negative",
+          createdAt: Date.now(),
+        });
+      }
+
+      // Process mental health (trauma, recovery)
+      const mentalHealthResult = await processMentalHealth(ctx, territory._id, newTick);
+      for (const event of mentalHealthResult.events) {
+        await ctx.db.insert("events", {
+          tick: newTick,
+          type: event.type.includes("death") ? "crisis" :
+                event.type.includes("recovery") ? "breakthrough" : "decision",
+          territoryId: territory._id,
+          title: event.type === "tragic_death" ? "Tragic Loss" :
+                 event.type.includes("madness") ? "Madness!" :
+                 event.type.includes("recovery") ? "Mental Health Recovery" : "Mental Health",
+          description: event.description,
+          severity: event.type.includes("death") ? "critical" :
+                   event.type.includes("madness") ? "negative" :
+                   event.type.includes("recovery") ? "positive" : "info",
+          createdAt: Date.now(),
+        });
+      }
+
+      // Process addictions
+      const addictionResult = await processAddictions(ctx, territory._id, newTick);
+      for (const event of addictionResult.events) {
+        await ctx.db.insert("events", {
+          tick: newTick,
+          type: event.type.includes("death") ? "crisis" : "decision",
+          territoryId: territory._id,
+          title: event.type.includes("death") ? "Tragic Death" :
+                 event.type === "addiction_worsened" ? "Addiction Worsened" :
+                 event.type === "addiction_discovered" ? "Secret Revealed" : "Addiction",
+          description: event.description,
+          severity: event.type.includes("death") ? "critical" :
+                   event.type === "addiction_worsened" ? "negative" : "info",
+          createdAt: Date.now(),
+        });
+      }
+
+      // Process espionage
+      const espionageResult = await processEspionage(ctx, territory._id, newTick);
+      for (const event of espionageResult.events) {
+        await ctx.db.insert("events", {
+          tick: newTick,
+          type: event.type.includes("captured") || event.type.includes("detected") ? "crisis" : "decision",
+          territoryId: territory._id,
+          title: event.type === "spy_captured" ? "Spy Captured!" :
+                 event.type === "spy_detected" ? "Enemy Spy Caught!" :
+                 event.type.includes("sabotage") ? "Sabotage!" :
+                 event.type.includes("assassinate") ? "Assassination!" : "Intelligence",
+          description: event.description,
+          severity: event.type.includes("captured") ? "critical" :
+                   event.type.includes("assassinate") ? "critical" :
+                   event.type.includes("sabotage") ? "negative" : "info",
+          createdAt: Date.now(),
+        });
+      }
+
+      // NOTE: Sabotage is AI-driven, not automatic
+      // The AI sees sabotage motivations (desperation, grudges, rivalry, etc.) in their prompt
+      // and chooses when to execute sabotage actions based on circumstances
+
       // Calculate tension indicators
       await calculateTensions(ctx, territory._id, newTick);
+
+      // Process organic war emergence (border incidents, escalation)
+      const warEmergence = await processWarEmergence(ctx, territory._id, newTick);
+      if (warEmergence.warDeclared && warEmergence.description) {
+        // War event already created in processWarEmergence
+        console.log(`[WAR] ${territory.name} - ${warEmergence.description}`);
+      }
+
+      // Process organic expansion (migration, raids when desperate, colonization)
+      const expansion = await processExpansion(ctx, territory._id, newTick);
+      if (expansion.actionTaken && expansion.description) {
+        console.log(`[EXPANSION] ${territory.name} - ${expansion.description}`);
+      }
+
+      // Process returning expeditions
+      await processExpeditionReturns(ctx, territory._id, newTick);
 
       // Update streaks
       const streakEvents = await updateStreaks(ctx, territory._id, newTick);
@@ -941,6 +1329,29 @@ export const processTick = internalMutation({
           newTick
         );
       }
+    }
+
+    // =============================================
+    // PHASE 6e: GLOBAL EXPEDITIONS
+    // =============================================
+
+    // Process all active expeditions (global, not per-territory)
+    const expeditionEvents = await processExpeditions(ctx, newTick);
+    for (const event of expeditionEvents.events) {
+      await ctx.db.insert("events", {
+        tick: newTick,
+        type: event.type.includes("returned") || event.type.includes("discovery") ? "breakthrough" :
+              event.type.includes("lost") || event.type.includes("crisis") ? "crisis" : "decision",
+        title: event.type.includes("returned") ? "Expedition Returns!" :
+               event.type.includes("discovery") ? "Discovery!" :
+               event.type.includes("lost") ? "Expedition Lost" :
+               event.type.includes("crisis") ? "Expedition Crisis" : "Expedition Update",
+        description: event.description,
+        severity: event.type.includes("returned") ? "positive" :
+                 event.type.includes("lost") ? "critical" :
+                 event.type.includes("discovery") ? "positive" : "info",
+        createdAt: Date.now(),
+      });
     }
 
     // Update active wars
@@ -1111,6 +1522,158 @@ export const processTick = internalMutation({
           severity: "info",
           createdAt: Date.now(),
         });
+      }
+    }
+
+    // =============================================
+    // PHASE 6D: VIEWER ENGAGEMENT SYSTEMS
+    // =============================================
+
+    // Process world events (global plagues, famines, disasters, boons)
+    const worldEventResults = await processWorldEvents(
+      ctx,
+      refreshedTerritories,
+      world,
+      newTick
+    );
+
+    // Log world event state changes
+    for (const eventId of worldEventResults.endedEvents) {
+      // Already logged in processWorldEvents
+    }
+
+    // Process rise and fall mechanics (decadence, golden ages, crises)
+    const riseAndFallResults = await processRiseAndFall(
+      ctx,
+      refreshedTerritories,
+      newTick
+    );
+
+    // Log rise and fall events
+    for (const change of riseAndFallResults.statusChanges) {
+      const territory = await ctx.db.get(change.territoryId);
+      if (territory) {
+        await ctx.db.insert("events", {
+          tick: newTick,
+          type: "system",
+          territoryId: change.territoryId,
+          title: `Status Change: ${change.newStatus}`,
+          description: `${territory.tribeName || territory.name} has transitioned from ${change.oldStatus} to ${change.newStatus}.`,
+          severity: change.newStatus === "collapsing" ? "critical" :
+                   change.newStatus === "golden_age" ? "positive" :
+                   change.newStatus === "crisis" ? "negative" : "info",
+          createdAt: Date.now(),
+        });
+      }
+    }
+
+    // Check and award milestones for each territory
+    for (const territory of refreshedTerritories) {
+      if (territory.isEliminated) continue;
+
+      // Gather extras for milestone checking
+      const territoryTechs = await ctx.db
+        .query("technologies")
+        .withIndex("by_territory", (q) => q.eq("territoryId", territory._id))
+        .collect();
+
+      const researchedTechIds = territoryTechs
+        .filter((t) => t.researched)
+        .map((t) => t.techId);
+
+      // Determine current era from researched techs
+      let currentEra = "stone_age";
+      const eraOrder = ["stone_age", "bronze_age", "iron_age", "medieval", "renaissance", "industrial", "modern", "atomic"];
+      for (const tech of TECH_TREE) {
+        if (researchedTechIds.includes(tech.techId)) {
+          const techEraIndex = eraOrder.indexOf(tech.era);
+          const currentEraIndex = eraOrder.indexOf(currentEra);
+          if (techEraIndex > currentEraIndex) {
+            currentEra = tech.era;
+          }
+        }
+      }
+
+      // Get rise and fall status for golden age check
+      const riseAndFall = await getRiseAndFallStatus(ctx, territory._id);
+
+      // Count trade routes
+      const tradeRoutes = await ctx.db
+        .query("tradeRoutes")
+        .filter((q) => q.or(
+          q.eq(q.field("territory1Id"), territory._id),
+          q.eq(q.field("territory2Id"), territory._id)
+        ))
+        .collect();
+      const activeTradeRoutes = tradeRoutes.filter((tr) => tr.isActive).length;
+
+      // Check for religion
+      const hasReligion = await ctx.db
+        .query("religions")
+        .withIndex("by_territory", (q) => q.eq("foundingTerritoryId", territory._id))
+        .first();
+
+      // Count wars won/lost from ruler record
+      const ruler = await ctx.db
+        .query("characters")
+        .withIndex("by_territory", (q) => q.eq("territoryId", territory._id))
+        .filter((q) => q.and(
+          q.eq(q.field("role"), "ruler"),
+          q.eq(q.field("isAlive"), true)
+        ))
+        .first();
+
+      const warsWon = ruler?.trustRecord?.warsWon || 0;
+      const warsLost = ruler?.trustRecord?.warsLost || 0;
+
+      // Check for university
+      const hasUniversity = await ctx.db
+        .query("schools")
+        .withIndex("by_territory", (q) => q.eq("territoryId", territory._id))
+        .filter((q) => q.eq(q.field("schoolType"), "university"))
+        .first();
+
+      // Check milestones
+      await checkAndAwardMilestones(ctx, territory, world, newTick, {
+        techs: researchedTechIds,
+        era: currentEra,
+        warsWon,
+        warsLost,
+        hasReligion: !!hasReligion,
+        hasUniversity: !!hasUniversity,
+        inGoldenAge: riseAndFall?.status === "golden_age",
+        tradeRoutes: activeTradeRoutes,
+      });
+    }
+
+    // =============================================
+    // PHASE 6E: ENDGAME TENSIONS (NUCLEAR DYNAMICS)
+    // =============================================
+
+    // Only process endgame tensions if any civ has reached atomic era
+    const atomicTechs = await ctx.db
+      .query("technologies")
+      .filter((q) => q.and(
+        q.eq(q.field("techId"), "nuclear_fission"),
+        q.eq(q.field("researched"), true)
+      ))
+      .collect();
+
+    if (atomicTechs.length > 0) {
+      const endgameResults = await processEndgameTensions(
+        ctx,
+        refreshedTerritories,
+        newTick
+      );
+
+      // Log doomsday clock movements
+      if (endgameResults.doomsdayMovement) {
+        // Already logged in processEndgameTensions
+      }
+
+      // Log new nuclear powers
+      for (const territoryId of endgameResults.newArsenals) {
+        // Already logged in processEndgameTensions
       }
     }
 

@@ -552,6 +552,26 @@ export async function checkPlotOpportunities(
       plotChance += 0.05;
     }
 
+    // INTERCONNECTION: Addiction makes characters vulnerable to manipulation
+    // Addicts are more desperate, easier to bribe, and may embezzle to fund habits
+    if (character.hasAddiction && character.addictionId) {
+      const addiction = await ctx.db.get(character.addictionId);
+      if (addiction) {
+        const addictionMultipliers: Record<string, number> = {
+          mild: 0.02,
+          moderate: 0.05,
+          severe: 0.10,
+          crippling: 0.20,
+        };
+        plotChance += addictionMultipliers[addiction.severity] || 0;
+
+        // Gambling addicts especially likely to embezzle
+        if (addiction.type === "gambling") {
+          plotChance += 0.03;
+        }
+      }
+    }
+
     // Secret goals increase specific plot chances
     if (character.secretGoal === "seize_throne") {
       plotChance += 0.1;
